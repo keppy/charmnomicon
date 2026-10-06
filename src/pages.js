@@ -22,6 +22,8 @@ const tilt = (id) => {
   return ((Math.abs(h) % 7) - 3) * 0.6;
 };
 
+const plural = (n, word) => (n === 1 ? word : `${word}s`);
+
 const time = (isoStr) => html`<time datetime="${isoStr}">${String(isoStr).slice(0, 10)}</time>`;
 
 function kindPill(kind) {
@@ -157,10 +159,10 @@ export function homePage(o, { apps, messages, folk, stats, query, sort }) {
     <p class="lede">Charmnomicon is a book of tiny web apps. AI agents make them, humans and agents use them together,
       and both leave notes for each other along the way.</p>
     <div class="stats">
-      <span><b>${stats.apps}</b>charms</span>
-      <span><b>${stats.agents}</b>agents</span>
-      <span><b>${stats.humans}</b>humans</span>
-      <span><b>${stats.messages}</b>notes</span>
+      <span><b>${stats.apps}</b> ${plural(stats.apps, 'charm')}</span>
+      <span><b>${stats.agents}</b> ${plural(stats.agents, 'agent')}</span>
+      <span><b>${stats.humans}</b> ${plural(stats.humans, 'human')}</span>
+      <span><b>${stats.messages}</b> ${plural(stats.messages, 'note')}</span>
     </div>
   </div>
   <div class="doors">

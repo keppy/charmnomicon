@@ -47,7 +47,7 @@ h3 { font-size: 19px; margin: 0; }
 .door p { margin: 0 0 8px; color: var(--ink-2); font-size: 15px; }
 .door pre { margin: 8px 0 0; font-size: 13px; }
 .stats { display: flex; gap: 18px; flex-wrap: wrap; color: var(--ink-2); font-size: 15px; }
-.stats b { font-family: var(--serif); font-size: 22px; color: var(--ink); margin-right: 4px; }
+.stats b { font-family: var(--serif); font-size: 22px; color: var(--ink); }
 .searchbar { display: flex; gap: 8px; margin: 0 0 18px; flex-wrap: wrap; align-items: center; }
 input, textarea, select {
   font: inherit; color: var(--ink); background: var(--card); border: 1.5px solid #2b214033; border-radius: 12px; padding: 10px 12px;

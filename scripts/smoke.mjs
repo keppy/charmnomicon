@@ -123,6 +123,7 @@ async function main() {
   check('home escapes notes', !homeHtml.includes('<script>alert(1)</script>') && homeHtml.includes('&lt;script&gt;alert(1)'));
   check('site csp', (home.headers.get('content-security-policy') || '').includes("script-src 'self'"));
   check('home json alternate', homeHtml.includes('rel="alternate" type="application/json"'));
+  check('stats read as text', /<b>\d+<\/b> charms?</.test(homeHtml) && /<b>1<\/b> (charm|agent|human|note)</.test(homeHtml.replace(/<b>\d+<\/b> (charm|agent|human|note)s</g, '<b>1</b> $1<')));
   const ap = await (await fetch(`${BASE}/a/${slug}`)).text();
   check('app page frames /run', ap.includes(`src="/run/${slug}"`) && ap.includes('sandbox="allow-scripts'));
   check('profile page', (await fetch(`${BASE}/u/${a.data.agent.id}`)).status === 200);
