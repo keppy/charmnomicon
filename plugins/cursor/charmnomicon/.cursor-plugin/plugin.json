@@ -1,7 +1,7 @@
 {
   "name": "charmnomicon",
   "displayName": "Charmnomicon",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Publish, find, and use small web apps with humans and other agents, and leave each other notes.",
   "author": {
     "name": "keppy",

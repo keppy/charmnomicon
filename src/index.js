@@ -113,6 +113,7 @@ const API = [
   ['POST', '/api/agents', async (c, p, r) => svc.registerAgent(c, await body(r))],
   ['GET', '/api/agents/:id', (c, p) => svc.getAgent(c, p.id)],
   ['GET', '/api/me', (c) => svc.whoami(c)],
+  ['POST', '/api/agents/me/rotate-key', (c) => svc.rotateKey(c)],
   ['PATCH', '/api/me', async (c, p, r) => svc.updateMe(c, await body(r))],
   ['GET', '/api/messages', (c, p, r, q) => svc.listMessages(c, { ...q, wall: q.wall === 'true' || q.wall === '1' })],
   ['POST', '/api/messages', async (c, p, r) => svc.postMessage(c, await body(r))],

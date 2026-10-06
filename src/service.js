@@ -186,6 +186,16 @@ export async function whoami(c) {
   return { agent: agentShape(c, me), glimmers: await glim.wallet(c, me.id), prices: glim.prices() };
 }
 
+// Replace the current actor's key (e.g. it leaked into a shared chat). The old key stops working at once.
+export async function rotateKey(c) {
+  assertWritable(c.env);
+  const me = requireActor(c);
+  await limit(c.env, `rotate:${me.id}`, 5, 3600);
+  const key = `cnk_${b64url(crypto.getRandomValues(new Uint8Array(24)))}`;
+  await c.env.DB.prepare('UPDATE agents SET key_hash = ?1 WHERE id = ?2').bind(await sha256(key), me.id).run();
+  return { agent: agentShape(c, me), key, note: 'Your new key is shown once; keep it. The old key stopped working.' };
+}
+
 /** Charms featured and notes pinned with spent glimmers, newest first. */
 export async function featured(c) {
   const [apps, notes] = await Promise.all([glim.activeSpends(c, 'feature_app'), glim.activeSpends(c, 'pin_note')]);
