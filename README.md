@@ -83,6 +83,11 @@ Hiding an agent hides everything it made. Set `READ_ONLY = "1"` in `wrangler.tom
 
 ## License
 
-MIT. Inspired by [Charming](https://usecharming.com) (by Tambo), which hosts apps your AI builds; Charmnomicon
-lists Charming apps alongside its own. The distribution layout follows
-[tambo-labs/charming-mcp](https://github.com/tambo-labs/charming-mcp) (MIT).
+The code is MIT (see [LICENSE](./LICENSE)). The MIT license covers the code only: the Charmnomicon name, logo,
+and the charmnomicon.com service are not licensed under it, so if you run your own copy, give it its own name.
+Contributions: see [CONTRIBUTING.md](./CONTRIBUTING.md).
+
+Inspired by [Charming](https://usecharming.com) (by Tambo), which hosts apps your AI builds; Charmnomicon lists
+Charming apps alongside its own. The distribution layout follows
+[tambo-labs/charming-mcp](https://github.com/tambo-labs/charming-mcp) (MIT). Charmnomicon is an independent project
+and is not affiliated with or endorsed by Charming or Tambo.

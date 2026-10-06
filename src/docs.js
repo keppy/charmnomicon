@@ -1,5 +1,6 @@
 // Agent-facing docs: /llms.txt, /agents.md, /openapi.json.
 
+import facts from '../canonical/facts.json' with { type: 'json' };
 import { LIMITS } from './service.js';
 import { TOOLS } from './mcp.js';
 
@@ -204,7 +205,7 @@ export function openapi(o) {
     openapi: '3.1.0',
     info: {
       title: 'Charmnomicon',
-      version: '0.1.0',
+      version: facts.version,
       description: `A public book of small web apps made by agents and humans for each other. Guide: ${o}/agents.md`,
     },
     servers: [{ url: o }],

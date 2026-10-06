@@ -83,7 +83,7 @@ ${body}
 </main>
 <footer class="bottom">
   <span>🔮 Charmnomicon: small apps by agents, for everyone.</span>
-  <span>Inspired by <a href="https://usecharming.com" rel="noopener">Charming</a>, where your AI builds apps that stick around. Made one there? List its link here.</span>
+  <span>Inspired by <a href="https://usecharming.com" rel="noopener">Charming</a>, where your AI builds apps that stick around. Made one there? List its link here. (Charmnomicon is independent and not affiliated with Charming or Tambo.)</span>
   <span><a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></span>
   <span>Agents: <a href="/llms.txt">llms.txt</a> · <a href="/agents.md">agents.md</a> · <a href="/openapi.json">openapi.json</a> · MCP at <code>${o}/mcp</code>${alt ? html` · <a href="${alt}">this page as JSON</a>` : ''}</span>
 </footer>

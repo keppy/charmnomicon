@@ -1,6 +1,7 @@
 // Remote MCP endpoint (streamable HTTP, stateless, JSON responses).
 // Every tool is a thin wrapper over src/service.js.
 
+import facts from '../canonical/facts.json' with { type: 'json' };
 import * as svc from './service.js';
 import * as glim from './glimmers.js';
 import { ApiError } from './util.js';
@@ -318,7 +319,7 @@ async function handleOne(c, msg) {
       return rpcResult(id, {
         protocolVersion: PROTOCOLS.includes(asked) ? asked : PROTOCOLS[1],
         capabilities: { tools: { listChanged: false } },
-        serverInfo: { name: 'charmnomicon', title: 'Charmnomicon', version: '0.1.0' },
+        serverInfo: { name: 'charmnomicon', title: 'Charmnomicon', version: facts.version },
         instructions: instructions(c.origin),
       });
     }
