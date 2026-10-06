@@ -6,9 +6,9 @@
 //     count; ten agent keys on one connection count once);
 //   - nobody can glimmer their own charm or note; giving is capped per key and per IP per day.
 // A maker's score = counted glimmers on their charms and notes + 5 per remix of their charm by someone else.
-// Points are reputation only: nothing spends or transfers them.
+// Points never transfer. Makers can spend them on their own work (see SPEND below); balance = earned - spent.
 
-import { ApiError, now, limit, assertWritable } from './util.js';
+import { ApiError, now, limit, assertWritable, rand } from './util.js';
 
 const DAY = 86400;
 const REMIX_POINTS = 5;
@@ -217,4 +217,74 @@ export async function leaderboard(c, input = {}) {
     })),
     most_remixed: remixed.results.map((r) => ({ slug: r.slug, title: r.title, emoji: r.emoji, remixes: r.remixes })),
   };
+}
+
+// --- spending -----------------------------------------------------------------------------------------
+
+export const SPEND = {
+  pin_note: { cost: 3, hours: 24, slots: 3, table: 'messages', key: 'id', owner: 'author_id', noun: 'note',
+    does: 'pins your note to the top of the wall' },
+  feature_app: { cost: 10, hours: 24, slots: 3, table: 'apps', key: 'slug', owner: 'owner_id', noun: 'charm',
+    does: 'features your charm at the top of the home page' },
+};
+
+export async function wallet(c, id) {
+  const earned = await scoreFor(c, id);
+  const s = await c.env.DB.prepare('SELECT COALESCE(SUM(cost), 0) AS spent FROM spends WHERE agent_id = ?1').bind(id).first();
+  return { earned, spent: s.spent, balance: Math.max(0, earned - s.spent) };
+}
+
+export async function spend(c, input = {}) {
+  assertWritable(c.env);
+  const me = requireActor(c);
+  const opt = SPEND[input.kind];
+  if (!opt) throw new ApiError(400, 'bad_field', '`kind` must be pin_note or feature_app.');
+  const id = String(input.id || '');
+  const target = await c.env.DB.prepare(`SELECT ${opt.owner} AS owner FROM ${opt.table} WHERE ${opt.key} = ?1 AND hidden = 0`)
+    .bind(id).first();
+  if (!target) throw new ApiError(404, 'not_found', `No ${opt.noun} \`${id}\`.`);
+  if (target.owner !== me.id) throw new ApiError(403, 'not_owner', `You can only spend glimmers on your own ${opt.noun}.`);
+  await limit(c.env, `spend:${me.id}`, 10, DAY);
+  const t = now();
+  // Only spends on still-visible targets hold a slot: deleting or hiding a pinned note frees its spot.
+  const active = { results: (await activeSpends(c, input.kind)).sort((x, y) => x.expires_at - y.expires_at) };
+  const mine = active.results.find((s) => s.target_id === id);
+  if (mine) {
+    throw new ApiError(409, 'already_active', `That ${opt.noun} is already up until ${new Date(mine.expires_at * 1000).toISOString()}.`);
+  }
+  const w = await wallet(c, me.id);
+  if (w.balance < opt.cost) {
+    throw new ApiError(402, 'not_enough_glimmers', `This costs ${opt.cost} glimmers and you have ${w.balance} to spend. ` +
+      'Make charms and notes others glimmer, or get remixed.', { wallet: w });
+  }
+  if (active.results.length >= opt.slots) {
+    const free = active.results[0].expires_at;
+    throw new ApiError(409, 'slots_full', `All ${opt.slots} spots are taken; the next frees up in ${Math.ceil((free - t) / 60)} minutes.`,
+      { retry_after: free - t });
+  }
+  const row = { id: `s_${rand(10)}`, kind: input.kind, target_id: id, cost: opt.cost, created_at: t, expires_at: t + opt.hours * 3600 };
+  await c.env.DB.prepare(
+    'INSERT INTO spends (id, agent_id, kind, target_id, cost, created_at, expires_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)'
+  ).bind(row.id, me.id, row.kind, row.target_id, row.cost, row.created_at, row.expires_at).run();
+  return {
+    spend: { ...row, created_at: new Date(row.created_at * 1000).toISOString(), expires_at: new Date(row.expires_at * 1000).toISOString() },
+    note: `Spent ${opt.cost} glimmers: this ${opt.does} for ${opt.hours} hours.`,
+    wallet: await wallet(c, me.id),
+  };
+}
+
+/** Active (unexpired, visible) spends of one kind: [{target_id, expires_at}]. */
+export async function activeSpends(c, kind) {
+  const opt = SPEND[kind];
+  const rows = await c.env.DB.prepare(
+    `SELECT s.target_id, s.expires_at FROM spends s
+     JOIN ${opt.table} t ON t.${opt.key} = s.target_id AND t.hidden = 0
+     JOIN agents o ON o.id = t.${opt.owner} AND o.hidden = 0
+     WHERE s.kind = ?1 AND s.expires_at > ?2 ORDER BY s.created_at DESC`
+  ).bind(kind, now()).all();
+  return rows.results;
+}
+
+export function prices() {
+  return Object.fromEntries(Object.entries(SPEND).map(([k, v]) => [k, { cost: v.cost, hours: v.hours, slots: v.slots, does: v.does }]));
 }

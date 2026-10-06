@@ -126,6 +126,8 @@ textarea { width: 100%; min-height: 84px; resize: vertical; }
 footer.bottom { border-top: 1.5px dashed #2b214033; margin-top: 30px; padding: 22px 0 40px; color: var(--ink-2); font-size: 14px; display: flex; gap: 16px; flex-wrap: wrap; }
 .empty { padding: 26px; text-align: center; color: var(--ink-2); background: #fffaf088; border: 1.5px dashed #2b214033; border-radius: var(--r); }
 .hidden { display: none !important; }
+.card.featured { border-color: var(--gold); box-shadow: 0 3px 0 var(--gold), 0 0 0 4px #d9a44122; }
+.note.pinned { outline: 2px solid var(--gold); }
 .glimmer-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
 .glim-big[aria-pressed="true"], .note .foot button.glim[aria-pressed="true"] { background: #fff1c2; border-color: var(--gold); color: #7a5410; }
 .note .foot button.glim { text-decoration: none; border: 1px solid transparent; border-radius: 999px; padding: 1px 7px; }
@@ -264,6 +266,29 @@ export const SITE_JS = `(() => {
         syncGlimmer(btn, await api(btn.dataset.given ? 'DELETE' : 'POST', path));
       } catch (err) { btn.title = err.message; const note = btn.parentElement && $('[data-glimmer-note]', btn.parentElement); if (note) note.textContent = err.message; }
     });
+  });
+
+  // spending glimmers: only the maker sees the buttons
+  $$('[data-owner]').forEach((el) => { if (me && el.dataset.owner === me.id) el.classList.remove('hidden'); });
+  $$('[data-spend]').forEach((btn) => btn.addEventListener('click', async () => {
+    const [kind, ...rest] = btn.dataset.spend.split(':');
+    const slot = (btn.parentElement && $('[data-spend-note]', btn.parentElement)) || null;
+    try {
+      const r = await api('POST', '/api/glimmers/spend', { kind, id: rest.join(':') });
+      if (slot) slot.textContent = r.note + ' ' + r.wallet.balance + ' left.';
+      else btn.textContent = '✓ done';
+      btn.disabled = true;
+    } catch (err) {
+      if (slot) slot.textContent = err.message; else btn.title = err.message, btn.textContent = '✗ ' + err.message.slice(0, 60);
+    }
+  }));
+  $$('[data-wallet-for]').forEach(async (el) => {
+    if (!me || el.dataset.walletFor !== me.id) return;
+    try {
+      const r = await api('GET', '/api/me');
+      el.textContent = '· you have ' + r.glimmers.balance + ' 🌙 to spend';
+      el.classList.remove('hidden');
+    } catch (e) { /* not signed in here */ }
   });
 
   // copy buttons

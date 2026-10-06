@@ -86,10 +86,12 @@ const api = async (method, path, body) => {
   const r = await fetch(BASE + path, { method, headers: { 'content-type': 'application/json' }, body: body && JSON.stringify(body) });
   return r.json();
 };
-const problems = () => events.filter((e) =>
+const expected = (e) => e.method === 'Log.entryAdded' && /\/api\/glimmers\/spend$/.test(e.params.entry.url || '')
+  && /status of 402/.test(e.params.entry.text); // the "not enough glimmers" answer the test deliberately triggers
+const problems = () => events.filter((e) => !expected(e) && (
   (e.method === 'Log.entryAdded' && e.params.entry.level === 'error') ||
   e.method === 'Runtime.exceptionThrown' ||
-  (e.method === 'Runtime.consoleAPICalled' && e.params.type === 'error'));
+  (e.method === 'Runtime.consoleAPICalled' && e.params.type === 'error')));
 const describe = (e) => JSON.stringify(e.params).slice(0, 240);
 
 try {
@@ -155,6 +157,8 @@ try {
   const hello = await ev(`({ key: document.getElementById('hello-key').textContent, stored: localStorage.getItem('cn_key'),
     shown: !document.getElementById('hello-out').classList.contains('hidden') })`);
   check('hello shows key', hello.shown && hello.key.startsWith('cnk_') && hello.stored === hello.key, JSON.stringify(hello));
+  const browserHuman = hello.key ? (await (await fetch(`${BASE}/api/me`, { headers: { authorization: `Bearer ${hello.key}` } })).json()).agent?.id : null;
+  globalThis.__createdAgents = browserHuman ? [browserHuman] : [];
 
   await go(`${BASE}/a/wishing-well`);
   const chip = await ev(`document.querySelector('[data-me]').textContent`);
@@ -182,6 +186,22 @@ try {
   }
   check('glimmer button gives', glim.pressed && glim.label === 'Glimmered', JSON.stringify(glim));
   check('glimmer explains not-yet-counted', /day old/.test(glim.note || ''), JSON.stringify(glim));
+  check('spend buttons hidden from non-owners', await ev(`document.querySelector('[data-spend^="feature_app:"]').closest('.glimmer-row').classList.contains('hidden')`));
+
+  // the maker (house agent, if its seed key is on disk for this base) sees the feature button on its own charm
+  const { existsSync: ex, readFileSync: rd } = await import('node:fs');
+  const seedKeyFile = new URL(`../.seed-key.${new URL(BASE).host.replace(/[^a-z0-9.-]/gi, '_')}`, import.meta.url);
+  if (ex(seedKeyFile)) {
+    const houseKey = rd(seedKeyFile, 'utf8').trim();
+    const me = await (await fetch(`${BASE}/api/me`, { headers: { authorization: `Bearer ${houseKey}` } })).json();
+    await ev(`localStorage.setItem('cn_key', ${JSON.stringify(houseKey)}); localStorage.setItem('cn_me', ${JSON.stringify(JSON.stringify(me.agent))}); true`);
+    await go(`${BASE}/a/wishing-well`);
+    check('owner sees feature button', await ev(`!document.querySelector('[data-spend^="feature_app:"]').closest('.glimmer-row').classList.contains('hidden')`));
+    await ev(`document.querySelector('[data-spend^="feature_app:"]').click()`);
+    let msg = '';
+    for (let i = 0; i < 20 && !msg; i++) { await sleep(300); msg = await ev(`document.querySelector('[data-spend-note]').textContent`); }
+    check('feature button explains the price', /costs 10 glimmers|Spent 10/.test(msg), msg);
+  }
   check('no errors in human flow', problems().length === 0, problems().map(describe).join(' | '));
 
   // D. home renders cleanly
@@ -193,6 +213,14 @@ try {
 } catch (e) {
   fails.push(`crashed: ${e.message}`);
 } finally {
+  const admin = process.env.CHARM_ADMIN_TOKEN || (/localhost|127\.0\.0\.1/.test(BASE) ? 'dev-admin' : null);
+  for (const id of globalThis.__createdAgents || []) {
+    if (!admin) break;
+    await fetch(`${BASE}/api/admin/moderate`, {
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-admin-token': admin },
+      body: JSON.stringify({ type: 'agent', id, reason: 'browser-check test human' }),
+    }).catch(() => {});
+  }
   ws.close();
   proc.kill();
   await sleep(500);

@@ -65,6 +65,20 @@ const CHARMS = [
       'Only grant wishes that have no `grant:` key yet. A good grant is kind, specific, and short: a tip, a tiny poem, a pointer to a charm here.\n' +
       'You may also toss your own wish with from: "<your name>".',
   },
+  {
+    file: 'renga-circle.html',
+    slug: 'renga-circle',
+    title: 'Renga Circle',
+    emoji: '🌸',
+    tagline: 'A linked poem humans and agents write together, one line at a time.',
+    tags: ['poetry', 'multiplayer', 'humans-and-agents'],
+    description: 'Renga is an old Japanese form where poets take turns adding linked verses. Here the circle is open: anyone, human or agent, adds the next line, and each line answers the one before it.',
+    agent_notes:
+      'Lines are keys `line:<base36 ms>-<4 random chars>` -> {"text", "by", "kind": "agent", "at": <ms epoch>}.\n' +
+      'Read them with read_app_data {prefix: "line:"} and sort by `at`. The shape repeats 5, 7, 5, 7, 7 syllables: ' +
+      'line N (0-based) should have [5,7,5,7,7][N % 5] syllables.\n' +
+      "Add at most one line per visit, answering the last line, and never two lines in a row when a human hasn't had a turn; leave room.",
+  },
 ];
 
 async function main() {

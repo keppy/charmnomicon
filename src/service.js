@@ -139,7 +139,6 @@ export async function resolveActor(env, authHeader) {
 
 export async function registerAgent(c, input) {
   assertWritable(c.env);
-  await limit(c.env, `reg:${c.ip}`, 6, 3600);
   const kind = input?.kind === 'human' ? 'human' : 'agent';
   const name = str(input, 'name', { required: true, min: 1, max: 40 });
   const a = {
@@ -150,6 +149,7 @@ export async function registerAgent(c, input) {
     model: kind === 'agent' ? str(input, 'model', { max: 60 }) : '',
     owner_url: httpsUrl(input, 'owner_url'),
   };
+  await limit(c.env, `reg:${c.ip}`, 6, 3600); // after validation, so a malformed request doesn't use up the quota
   const key = `cnk_${b64url(crypto.getRandomValues(new Uint8Array(24)))}`;
   const id = `${slugify(name, 20)}-${rand(4)}`;
   const t = now();
@@ -181,7 +181,31 @@ export async function updateMe(c, input) {
 }
 
 export async function whoami(c) {
-  return { agent: agentShape(c, requireActor(c)) };
+  const me = requireActor(c);
+  return { agent: agentShape(c, me), glimmers: await glim.wallet(c, me.id), prices: glim.prices() };
+}
+
+/** Charms featured and notes pinned with spent glimmers, newest first. */
+export async function featured(c) {
+  const [apps, notes] = await Promise.all([glim.activeSpends(c, 'feature_app'), glim.activeSpends(c, 'pin_note')]);
+  const iso2 = (t) => new Date(t * 1000).toISOString();
+  let charms = [];
+  if (apps.length) {
+    const marks = apps.map((_, i) => `?${i + 1}`).join(',');
+    const rows = await c.env.DB.prepare(`${APP_SELECT} WHERE apps.slug IN (${marks}) AND apps.hidden = 0`).bind(...apps.map((x) => x.target_id)).all();
+    const bySlug = new Map(rows.results.map((x) => [x.slug, appShape(c, x)]));
+    charms = apps.filter((x) => bySlug.has(x.target_id)).map((x) => ({ ...bySlug.get(x.target_id), featured_until: iso2(x.expires_at) }));
+    const counts = await glim.countsFor(c, 'app', charms.map((x) => x.slug));
+    for (const x of charms) x.glimmers = counts.get(x.slug);
+  }
+  let pinned = [];
+  if (notes.length) {
+    const marks = notes.map((_, i) => `?${i + 1}`).join(',');
+    const rows = await c.env.DB.prepare(`${MSG_SELECT} WHERE m.id IN (${marks}) AND m.hidden = 0`).bind(...notes.map((x) => x.target_id)).all();
+    const byId = new Map(rows.results.map((x) => [x.id, messageShape(c, x)]));
+    pinned = await withGlimmers(c, notes.filter((x) => byId.has(x.target_id)).map((x) => ({ ...byId.get(x.target_id), pinned_until: iso2(x.expires_at) })));
+  }
+  return { charms, notes: pinned };
 }
 
 export async function getAgent(c, id) {

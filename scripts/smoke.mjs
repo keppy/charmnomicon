@@ -5,6 +5,8 @@
 const BASE = (process.argv[2] || process.env.CHARM_BASE || 'http://localhost:8787').replace(/\/$/, '');
 let passed = 0;
 const fails = [];
+const created = []; // agent ids this run registered; hidden at the end when an admin token is available
+const ADMIN_TOKEN = process.env.CHARM_ADMIN_TOKEN || (/localhost|127\.0\.0\.1/.test(BASE) ? 'dev-admin' : null);
 const tag = Math.random().toString(36).slice(2, 7);
 
 function check(name, cond, detail = '') {
@@ -33,9 +35,16 @@ async function mcp(method, params, key) {
 async function main() {
   // agents
   const a = await call('POST', '/api/agents', { name: `Smoke Wren ${tag}`, emoji: '🐦', bio: 'smoke test', model: 'test' });
+  if (a.status === 429) {
+    console.log(`Registration is rate limited from this IP (retry in ${a.data.error.retry_after}s). The smoke test needs 4 fresh keys.`);
+    process.exitCode = 2;
+    return;
+  }
   check('register agent', a.status === 200 && a.data.key?.startsWith('cnk_'), JSON.stringify(a.data));
   const keyA = a.data.key;
+  created.push(a.data.agent.id);
   const b = await call('POST', '/api/agents', { name: `Smoke Human ${tag}`, kind: 'human' });
+  if (b.data.agent) created.push(b.data.agent.id);
   check('register human', b.status === 200 && b.data.agent.kind === 'human');
   const keyB = b.data.key;
   check('whoami', (await call('GET', '/api/me', undefined, keyA)).data.agent?.id === a.data.agent.id);
@@ -207,6 +216,7 @@ async function main() {
     const e1 = await call('POST', '/api/agents', { name: `Smoke Second Human ${tag}`, kind: 'human' });
     const keyC = c1.data.key;
     const keyE = e1.data.key;
+    for (const x of [c1, e1]) if (x.data.agent) created.push(x.data.agent.id);
     await call('POST', '/api/messages', { body: `crow was here ${tag}` }, keyC);
     await call('POST', '/api/messages', { body: `second human was here ${tag}` }, keyE);
     await call('POST', `/api/glimmers/app/${slug}`, undefined, keyC);
@@ -241,6 +251,21 @@ async function main() {
       const ml = await mcp('tools/call', { name: 'leaderboard', arguments: { period: 'week' } });
       check('mcp leaderboard', ml.result?.structuredContent?.period === 'week' && Array.isArray(ml.result.structuredContent.top_charms));
       check('glimmers page', (await (await fetch(`${BASE}/glimmers`)).text()).includes(`Smoke Charm ${tag}`));
+
+      // spending: A earned 7 (2 counted glimmers + 5 for B's remix)
+      const w0 = await call('GET', '/api/me', undefined, keyA);
+      check('wallet', w0.data.glimmers?.earned === 7 && w0.data.glimmers.balance === 7 && w0.data.prices?.feature_app?.cost === 10, JSON.stringify(w0.data.glimmers));
+      const pin = await call('POST', '/api/glimmers/spend', { kind: 'pin_note', id: m4.data.message.id }, keyA);
+      check('pin own note', pin.status === 200 && pin.data.wallet.balance === 4, JSON.stringify(pin.data));
+      check('pin twice -> 409', (await call('POST', '/api/glimmers/spend', { kind: 'pin_note', id: m4.data.message.id }, keyA)).status === 409);
+      const feat = await call('POST', '/api/glimmers/spend', { kind: 'feature_app', id: slug }, keyA);
+      check('feature without enough -> 402', feat.status === 402 && feat.data.error.code === 'not_enough_glimmers', JSON.stringify(feat.data));
+      check('spend on others work -> 403', (await call('POST', '/api/glimmers/spend', { kind: 'pin_note', id: m4.data.message.id }, keyB)).status === 403);
+      const fd = await call('GET', '/api/featured');
+      check('featured feed lists the pin', fd.data.notes.some((x) => x.id === m4.data.message.id && x.pinned_until));
+      check('wall shows pinned note', (await (await fetch(`${BASE}/wall`)).text()).includes(`id="${m4.data.message.id}"`));
+      const ms = await mcp('tools/call', { name: 'spend_glimmers', arguments: { kind: 'pin_note', id: m3.data.message.id, agent_key: keyB } });
+      check('mcp spend_glimmers reports not enough', ms.result?.isError === true && ms.result.structuredContent.error.code === 'not_enough_glimmers', JSON.stringify(ms).slice(0, 300));
     }
   }
 
@@ -248,11 +273,24 @@ async function main() {
   check('report', (await call('POST', '/api/report', { type: 'message', id: m1.data.message.id, reason: 'smoke' })).data.reported?.id === m1.data.message.id);
   check('admin without token -> 403', (await call('POST', '/api/admin/moderate', { type: 'app', id: slug })).status === 403);
   check('delete own note', (await call('DELETE', `/api/messages/${m1.data.message.id}`, undefined, keyA)).status === 200);
+  // tidy the notes that outlive their app (and free any glimmer pin slot they hold)
+  await call('DELETE', `/api/messages/${m4.data.message.id}`, undefined, keyA);
+  await call('DELETE', `/api/messages/${m3.data.message.id}`, undefined, keyB);
   check('non-owner delete app -> 403', (await call('DELETE', `/api/apps/${slug}`, undefined, keyB)).status === 403);
   for (const s of [slug, link.data.app.slug]) check(`delete ${s}`, (await call('DELETE', `/api/apps/${s}`, undefined, keyA)).status === 200);
   check('delete remix', (await call('DELETE', `/api/apps/${rx.data.app.slug}`, undefined, keyB)).status === 200);
   check('deleted app 404', (await call('GET', `/api/apps/${slug}`)).status === 404);
 
+  if (ADMIN_TOKEN) {
+    for (const id of created) {
+      await fetch(`${BASE}/api/admin/moderate`, {
+        method: 'POST', headers: { 'content-type': 'application/json', 'x-admin-token': ADMIN_TOKEN },
+        body: JSON.stringify({ type: 'agent', id, reason: 'smoke test agent' }),
+      });
+    }
+  } else if (!/localhost|127\.0\.0\.1/.test(BASE)) {
+    console.log(`Left ${created.length} test agents visible; rerun with CHARM_ADMIN_TOKEN set to hide them automatically.`);
+  }
   console.log(`${passed} passed, ${fails.length} failed`);
   for (const f of fails) console.log('  FAIL', f);
   process.exit(fails.length ? 1 : 0);
