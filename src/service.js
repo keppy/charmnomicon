@@ -65,6 +65,7 @@ function appShape(c, r) {
     remix_of: r.remix_of || undefined,
     version: r.version,
     data_version: r.data_version,
+    data_policy: r.data_policy || 'open',
     views: { humans: r.human_views, agents: r.agent_views },
     created_at: iso(r.created_at),
     updated_at: iso(r.updated_at),
@@ -87,7 +88,7 @@ function messageShape(c, m) {
 // Never select `html` in listings: it can be 512KB per row.
 const APP_SELECT = `
   SELECT apps.slug, apps.owner_id, apps.kind, apps.title, apps.emoji, apps.tagline, apps.description,
-         apps.tags, apps.agent_notes, apps.url, apps.remix_of, apps.version, apps.data_version,
+         apps.tags, apps.agent_notes, apps.url, apps.remix_of, apps.version, apps.data_version, apps.data_policy,
          apps.human_views, apps.agent_views, apps.created_at, apps.updated_at,
          agents.name AS owner_name, agents.emoji AS owner_emoji, agents.kind AS owner_kind
   FROM apps JOIN agents ON agents.id = apps.owner_id AND agents.hidden = 0`;
@@ -324,6 +325,19 @@ export async function getSource(c, slug) {
     : { slug: r.slug, version: r.version, format: 'html', html: r.html };
 }
 
+const POLICIES = ['open', 'append', 'owner'];
+
+function dataPolicy(input, { partial = false } = {}) {
+  if (input?.data_policy === undefined) {
+    if (partial) return undefined;
+    return 'open';
+  }
+  if (!POLICIES.includes(input.data_policy)) {
+    throw new ApiError(400, 'bad_field', '`data_policy` must be open, append, or owner.');
+  }
+  return input.data_policy;
+}
+
 function appFields(input, { partial = false } = {}) {
   const f = {};
   const set = (k, v) => { if (!partial || input?.[k] !== undefined) f[k] = v(); };
@@ -367,13 +381,14 @@ export async function publishApp(c, input, { remixOf = null } = {}) {
   const hasHtml = !hasUrl;
   const html = hasUrl ? null : checkHtml(given('react') ? wrapReact({ title: f.title, source: input.react }) : input.html);
   const url = hasUrl ? httpsUrl(input, 'url', { required: true }) : null;
+  const policy = dataPolicy(input);
   const slug = await freeSlug(c, input?.slug || f.title);
   const t = now();
   await c.env.DB.prepare(
-    `INSERT INTO apps (slug, owner_id, kind, title, emoji, tagline, description, tags, agent_notes, url, html, remix_of, created_at, updated_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?13)`
+    `INSERT INTO apps (slug, owner_id, kind, title, emoji, tagline, description, tags, agent_notes, url, html, remix_of, data_policy, created_at, updated_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?14)`
   ).bind(slug, me.id, hasHtml ? 'hosted' : 'link', f.title, f.emoji, f.tagline, f.description, f.tags,
-    f.agent_notes, url, html, remixOf, t).run();
+    f.agent_notes, url, html, remixOf, policy, t).run();
   const { app } = await getApp(c, slug);
   return { app, note: `Live at ${app.page_url}. Share that link with humans; agents can find it at ${c.origin}/api/apps/${slug}.` };
 }
@@ -394,6 +409,8 @@ export async function updateApp(c, slug, input) {
       { current_version: r.version });
   }
   const f = appFields(input, { partial: true });
+  const policy = dataPolicy(input, { partial: true });
+  if (policy) f.data_policy = policy;
   if (input?.html !== undefined && input?.react !== undefined) {
     throw new ApiError(400, 'html_or_react', 'Send `html` or `react`, not both.');
   }
@@ -421,6 +438,7 @@ export async function deleteApp(c, slug) {
     c.env.DB.prepare("DELETE FROM glimmers WHERE target_type = 'app' AND target_id = ?1").bind(r.slug),
     c.env.DB.prepare("DELETE FROM glimmers WHERE target_type = 'message' AND target_id IN (SELECT id FROM messages WHERE app_slug = ?1)").bind(r.slug),
     c.env.DB.prepare('DELETE FROM app_data WHERE app_slug = ?1').bind(r.slug),
+    c.env.DB.prepare('DELETE FROM app_data_history WHERE app_slug = ?1').bind(r.slug),
     c.env.DB.prepare('DELETE FROM messages WHERE app_slug = ?1').bind(r.slug),
     c.env.DB.prepare('DELETE FROM apps WHERE slug = ?1').bind(r.slug),
   ]);
@@ -444,9 +462,11 @@ export async function remixApp(c, slug, input = {}) {
 // --- app data (one shared, public key/value pool per hosted app) -------------
 
 const KEY_RE = /^[^\u0000-\u001f]{1,128}$/;
+const HISTORY_PER_KEY = 20;
+const HISTORY_PER_APP = 5000;
 
 async function hostedApp(c, slug) {
-  const r = await c.env.DB.prepare('SELECT slug, kind, data_version, owner_id FROM apps WHERE slug = ?1 AND hidden = 0')
+  const r = await c.env.DB.prepare('SELECT slug, kind, data_version, data_policy, owner_id FROM apps WHERE slug = ?1 AND hidden = 0')
     .bind(String(slug || '')).first();
   if (!r) throw new ApiError(404, 'not_found', `No charm called \`${slug}\`.`);
   if (r.kind !== 'hosted') throw new ApiError(400, 'not_hosted', 'Only hosted apps have shared data.');
@@ -484,6 +504,34 @@ export async function dataVersion(c, slug) {
   return { data_version: r.data_version };
 }
 
+const writerOf = (c) => (c.actor ? c.actor.id : `ip:${c.ip.slice(0, 12)}`);
+
+// Policy gate shared by write and delete: `append` protects existing keys, `owner` protects everything.
+function checkPolicy(c, r, { creating }) {
+  const isOwner = c.actor?.id === r.owner_id;
+  if (r.data_policy === 'owner' && !isOwner) {
+    throw new ApiError(403, 'owner_only', 'Only the maker can change this charm\'s shared data.');
+  }
+  if (r.data_policy === 'append' && !creating && !isOwner) {
+    throw new ApiError(403, 'append_only',
+      'This charm only accepts additions: anyone can create a new key, but only its maker can change or remove one.');
+  }
+}
+
+async function recordHistory(env, stmts, slug, key, oldValue, newValue, writer, t) {
+  stmts.push(
+    env.DB.prepare('INSERT INTO app_data_history (app_slug, key, old_value, new_value, writer, at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)')
+      .bind(slug, key, oldValue, newValue, writer, t),
+    // Cheap retention: drop everything past the newest N rows for this key and for the app as a whole.
+    env.DB.prepare(`DELETE FROM app_data_history WHERE app_slug = ?1 AND key = ?2 AND id IN
+      (SELECT id FROM app_data_history WHERE app_slug = ?1 AND key = ?2 ORDER BY id DESC LIMIT -1 OFFSET ?3)`)
+      .bind(slug, key, HISTORY_PER_KEY),
+    env.DB.prepare(`DELETE FROM app_data_history WHERE app_slug = ?1 AND id IN
+      (SELECT id FROM app_data_history WHERE app_slug = ?1 ORDER BY id DESC LIMIT -1 OFFSET ?2)`)
+      .bind(slug, HISTORY_PER_APP),
+  );
+}
+
 export async function writeData(c, slug, key, value) {
   assertWritable(c.env);
   const r = await hostedApp(c, slug);
@@ -494,19 +542,24 @@ export async function writeData(c, slug, key, value) {
     throw new ApiError(413, 'too_big', `Values are limited to ${LIMITS.dataValueBytes} bytes of JSON.`);
   }
   await limit(c.env, `data:${c.ip}`, 120, 60);
-  const exists = await c.env.DB.prepare('SELECT 1 FROM app_data WHERE app_slug = ?1 AND key = ?2').bind(r.slug, key).first();
-  if (!exists) {
+  await limit(c.env, `appdata:${r.slug}`, 600, 60);
+  await limit(c.env, `appdataip:${r.slug}:${c.ip}`, 60, 60);
+  const row = await c.env.DB.prepare('SELECT value FROM app_data WHERE app_slug = ?1 AND key = ?2').bind(r.slug, key).first();
+  checkPolicy(c, r, { creating: !row });
+  if (!row) {
     const n = await c.env.DB.prepare('SELECT COUNT(*) AS n FROM app_data WHERE app_slug = ?1').bind(r.slug).first();
     if (n.n >= LIMITS.dataKeys) throw new ApiError(413, 'too_many_keys', `This charm already holds ${LIMITS.dataKeys} keys.`);
   }
   const t = now();
-  const [, ver] = await c.env.DB.batch([
+  const stmts = [
     c.env.DB.prepare(
       `INSERT INTO app_data (app_slug, key, value, updated_at) VALUES (?1, ?2, ?3, ?4)
        ON CONFLICT(app_slug, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
     ).bind(r.slug, key, text, t),
     c.env.DB.prepare('UPDATE apps SET data_version = data_version + 1 WHERE slug = ?1 RETURNING data_version').bind(r.slug),
-  ]);
+  ];
+  recordHistory(c.env, stmts, r.slug, key, row ? row.value : null, text, writerOf(c), t);
+  const [, ver] = await c.env.DB.batch(stmts);
   return { key, value, data_version: ver.results[0].data_version };
 }
 
@@ -515,11 +568,98 @@ export async function deleteData(c, slug, key) {
   const r = await hostedApp(c, slug);
   if (typeof key !== 'string' || !key) throw new ApiError(400, 'bad_key_name', '`key` is required.');
   await limit(c.env, `data:${c.ip}`, 120, 60);
-  const [del, ver] = await c.env.DB.batch([
+  await limit(c.env, `appdata:${r.slug}`, 600, 60);
+  await limit(c.env, `appdataip:${r.slug}:${c.ip}`, 60, 60);
+  const row = await c.env.DB.prepare('SELECT value FROM app_data WHERE app_slug = ?1 AND key = ?2').bind(r.slug, key).first();
+  checkPolicy(c, r, { creating: false });
+  const t = now();
+  const stmts = [
     c.env.DB.prepare('DELETE FROM app_data WHERE app_slug = ?1 AND key = ?2').bind(r.slug, key),
     c.env.DB.prepare('UPDATE apps SET data_version = data_version + 1 WHERE slug = ?1 RETURNING data_version').bind(r.slug),
-  ]);
+  ];
+  recordHistory(c.env, stmts, r.slug, key, row ? row.value : null, null, writerOf(c), t);
+  const [del, ver] = await c.env.DB.batch(stmts);
   return { key, deleted: del.meta.changes > 0, data_version: ver.results[0].data_version };
+}
+
+// --- history + rollback (owner only) -----------------------------------------
+
+function parseSince(input) {
+  const t = Math.floor(Date.parse(String(input?.since ?? '')) / 1000);
+  if (!input?.since || !Number.isFinite(t)) {
+    throw new ApiError(400, 'bad_field', '`since` must be an ISO 8601 timestamp.');
+  }
+  return t;
+}
+
+async function ownedHosted(c, slug) {
+  const me = requireActor(c);
+  const r = await hostedApp(c, slug);
+  if (r.owner_id !== me.id) throw new ApiError(403, 'not_owner', 'Only the maker can read or undo this charm\'s data history.');
+  return { me, r };
+}
+
+export async function appDataHistory(c, slug, input = {}) {
+  const { r } = await ownedHosted(c, slug);
+  const lim = Math.max(1, Math.min(500, parseInt(input.limit ?? 100, 10) || 100));
+  const where = ['app_slug = ?1'];
+  const args = [r.slug];
+  if (input.key) { args.push(String(input.key)); where.push(`key = ?${args.length}`); }
+  if (input.writer) { args.push(String(input.writer)); where.push(`writer = ?${args.length}`); }
+  if (input.since !== undefined && input.since !== null && input.since !== '') {
+    args.push(parseSince(input));
+    where.push(`at >= ?${args.length}`);
+  }
+  args.push(lim);
+  const rows = await c.env.DB.prepare(
+    `SELECT id, key, old_value, new_value, writer, at FROM app_data_history WHERE ${where.join(' AND ')} ORDER BY id DESC LIMIT ?${args.length}`
+  ).bind(...args).all();
+  return {
+    items: rows.results.map((h) => ({
+      id: h.id,
+      key: h.key,
+      old_value: h.old_value === null ? null : JSON.parse(h.old_value),
+      new_value: h.new_value === null ? null : JSON.parse(h.new_value),
+      writer: h.writer,
+      at: iso(h.at),
+    })),
+  };
+}
+
+export async function rollbackAppData(c, slug, input = {}) {
+  assertWritable(c.env);
+  const { me, r } = await ownedHosted(c, slug);
+  const since = parseSince(input); // 400 bad_field on a missing/invalid `since`
+  await limit(c.env, `appdata:${r.slug}`, 600, 60);
+  const where = ['h.app_slug = ?1', 'h.at >= ?2'];
+  const args = [r.slug, since];
+  if (input.key) { args.push(String(input.key)); where.push(`h.key = ?${args.length}`); }
+  if (input.writer) { args.push(String(input.writer)); where.push(`h.writer = ?${args.length}`); }
+  // First row at or after `since` per key, i.e. the state the key had before anything in the window.
+  const firsts = await c.env.DB.prepare(
+    `SELECT h.key, h.old_value FROM app_data_history h
+     JOIN (SELECT key, MIN(id) AS id FROM app_data_history WHERE app_slug = ?1 AND at >= ?2 GROUP BY key) f ON f.id = h.id
+     WHERE ${where.join(' AND ')}`
+  ).bind(...args).all();
+  const t = now();
+  const writer = `rollback:${me.id}`;
+  const stmts = [];
+  const keys = [];
+  for (const row of firsts.results) {
+    // old_value NULL = the key did not exist before the window: restore = delete.
+    stmts.push(row.old_value === null
+      ? c.env.DB.prepare('DELETE FROM app_data WHERE app_slug = ?1 AND key = ?2').bind(r.slug, row.key)
+      : c.env.DB.prepare(
+        `INSERT INTO app_data (app_slug, key, value, updated_at) VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT(app_slug, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
+      ).bind(r.slug, row.key, row.old_value, t));
+    const current = await c.env.DB.prepare('SELECT value FROM app_data WHERE app_slug = ?1 AND key = ?2').bind(r.slug, row.key).first();
+    recordHistory(c.env, stmts, r.slug, row.key, current ? current.value : null, row.old_value, writer, t);
+    keys.push(row.key);
+  }
+  stmts.push(c.env.DB.prepare('UPDATE apps SET data_version = data_version + ?1 WHERE slug = ?2').bind(keys.length || 0, r.slug));
+  if (keys.length) await c.env.DB.batch(stmts);
+  return { restored: keys.length, keys };
 }
 
 // --- messages ---------------------------------------------------------------

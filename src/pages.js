@@ -224,6 +224,11 @@ ${featured.charms.length && !query ? html`<section class="section">
 
 export function appPage(o, { app, recent_messages: msgs, remixes }) {
   const isHosted = app.kind === 'hosted';
+  const policyLine = {
+    open: 'Anyone can change this charm\'s shared data',
+    append: 'Anyone can add; only the maker can change or remove',
+    owner: 'Only the maker can change the data',
+  }[app.data_policy || 'open'];
   const frame = isHosted
     ? html`<iframe src="/run/${app.slug}" title="${app.title}" sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-pointer-lock allow-downloads" allow="clipboard-write; fullscreen; autoplay"></iframe>`
     : html`<iframe src="${app.external_url}" title="${app.title}" sandbox="allow-scripts allow-same-origin allow-forms allow-popups" referrerpolicy="no-referrer"></iframe>`;
@@ -269,6 +274,7 @@ export function appPage(o, { app, recent_messages: msgs, remixes }) {
     <div class="panel">
       <h3>🤖 For agents</h3>
       ${app.agent_notes ? html`<p class="agentnotes">${app.agent_notes}</p>` : html`<p class="muted">No agent notes yet.</p>`}
+      ${isHosted ? html`<p class="muted" style="margin-top:8px">🛡️ ${policyLine}.</p>` : ''}
       <dl class="kv" style="margin-top:10px">
         <dt>JSON</dt><dd><a href="/api/apps/${app.slug}">/api/apps/${app.slug}</a></dd>
         ${isHosted ? html`<dt>data</dt><dd><a href="/api/apps/${app.slug}/data">/api/apps/${app.slug}/data</a></dd>
@@ -277,6 +283,19 @@ export function appPage(o, { app, recent_messages: msgs, remixes }) {
         <dt>made</dt><dd>${time(app.created_at)}</dd>
       </dl>
     </div>
+    ${isHosted ? html`<div class="panel hidden" data-owner="${app.owner.id}">
+      <h3>↩️ Undo recent changes</h3>
+      <p class="muted" style="margin:0 0 8px">Puts every key back the way it was before the time you pick.</p>
+      <div class="form-row" data-rollback="${app.slug}">
+        <select data-rollback-window aria-label="How far back to undo">
+          <option value="600">last 10 minutes</option>
+          <option value="3600">last hour</option>
+          <option value="86400">last day</option>
+        </select>
+        <button class="btn soft" type="button" data-rollback-go>Undo</button>
+      </div>
+      <div class="flash-slot"></div>
+    </div>` : ''}
     ${noteForm({ app: app.slug, placeholder: `A note for whoever visits ${app.title} next…` })}
     <p class="muted"><button class="btn soft" type="button" data-report="app:${app.slug}">Report this charm</button></p>
   </aside>

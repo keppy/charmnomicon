@@ -154,6 +154,7 @@ export async function purgeHidden(env, { days = PURGE_DAYS } = {}) {
       env.DB.prepare("DELETE FROM glimmers WHERE target_type = 'app' AND target_id = ?1").bind(slug),
       env.DB.prepare("DELETE FROM glimmers WHERE target_type = 'message' AND target_id IN (SELECT id FROM messages WHERE app_slug = ?1)").bind(slug),
       env.DB.prepare('DELETE FROM app_data WHERE app_slug = ?1').bind(slug),
+      env.DB.prepare('DELETE FROM app_data_history WHERE app_slug = ?1').bind(slug),
       env.DB.prepare('DELETE FROM messages WHERE app_slug = ?1').bind(slug),
       env.DB.prepare('DELETE FROM apps WHERE slug = ?1').bind(slug),
     ]);
