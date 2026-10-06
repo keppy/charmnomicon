@@ -144,6 +144,109 @@ async function main() {
   check('data version', (await call('GET', `/api/apps/${slug}/data-version`)).data.data_version === 3);
   check('link app has no data', (await call('GET', `/api/apps/${link.data.app.slug}/data`)).status === 400);
 
+  // data protection: policies, history, rollback (fresh charms so counts are clean)
+  const pol = async (policy) => {
+    const r = await call('POST', '/api/apps', {
+      title: `Smoke ${policy} ${tag}`, emoji: '🛡️', data_policy: policy,
+      html: '<!doctype html><html><body><p id=x>shared</p></body></html>',
+    }, keyA);
+    check(`publish with data_policy ${policy}`, r.status === 200 && r.data.app.data_policy === policy, JSON.stringify(r.data).slice(0, 200));
+    return r.data.app.slug;
+  };
+  const badPolicy = await call('POST', '/api/apps', { title: 'bad policy', data_policy: 'rude', html }, keyA);
+  check('bad data_policy -> 400', badPolicy.status === 400 && badPolicy.data.error.code === 'bad_field', JSON.stringify(badPolicy.data));
+  const openS = await pol('open');
+  const appS = await pol('append');
+  const ownS = await pol('owner');
+  check('policy in get_app', (await call('GET', `/api/apps/${appS}`)).data.app.data_policy === 'append');
+
+  // open: unchanged behaviour
+  check('open: anonymous write ok', (await call('PUT', `/api/apps/${openS}/data/any`, { value: 1 })).status === 200);
+  check('open: anonymous overwrite ok', (await call('PUT', `/api/apps/${openS}/data/any`, { value: 2 })).status === 200);
+  check('open: anonymous delete ok', (await call('DELETE', `/api/apps/${openS}/data/any`)).status === 200);
+
+  // append: anyone creates, only the owner changes or removes
+  check('append: non-owner creates key', (await call('PUT', `/api/apps/${appS}/data/keep`, { value: 'first' })).status === 200);
+  const apOver = await call('PUT', `/api/apps/${appS}/data/keep`, { value: 'smashed' });
+  check('append: non-owner overwrite -> 403 append_only', apOver.status === 403 && apOver.data.error.code === 'append_only', JSON.stringify(apOver.data));
+  check('append: non-owner delete -> 403', (await call('DELETE', `/api/apps/${appS}/data/keep`)).status === 403);
+  check('append: owner overwrite ok', (await call('PUT', `/api/apps/${appS}/data/keep`, { value: 'second' }, keyA)).status === 200);
+  check('append: owner delete ok', (await call('DELETE', `/api/apps/${appS}/data/keep`, undefined, keyA)).status === 200);
+
+  // owner: only the owner's key
+  const ownAnon = await call('PUT', `/api/apps/${ownS}/data/k`, { value: 1 });
+  check('owner: anonymous write -> 403 owner_only', ownAnon.status === 403 && ownAnon.data.error.code === 'owner_only', JSON.stringify(ownAnon.data));
+  check('owner: other agent -> 403', (await call('PUT', `/api/apps/${ownS}/data/k`, { value: 1 }, keyB)).status === 403);
+  check('owner: anonymous delete -> 403', (await call('DELETE', `/api/apps/${ownS}/data/k`)).status === 403);
+  check('owner: owner write ok', (await call('PUT', `/api/apps/${ownS}/data/k`, { value: 'mine' }, keyA)).status === 200);
+  check('owner: owner delete ok', (await call('DELETE', `/api/apps/${ownS}/data/k`, undefined, keyA)).status === 200);
+
+  // history + rollback, on a fresh open charm (the smash-and-restore story)
+  const hs = await pol('open');
+  await call('PUT', `/api/apps/${hs}/data/vase`, { value: 'intact' }); // exists before `since`
+  await new Promise((r) => setTimeout(r, 1200)); // history timestamps are whole seconds; keep the window boundary clean
+  const before = new Date(Math.floor(Date.now() / 1000) * 1000).toISOString(); // the vandalism below happens after this
+  await call('PUT', `/api/apps/${hs}/data/vase`, { value: 'smashed' }); // a vandal
+  await call('PUT', `/api/apps/${hs}/data/graffiti`, { value: 'oops' }); // created after `before`
+  const hist401 = await call('GET', `/api/apps/${hs}/history`);
+  check('history needs key -> 401', hist401.status === 401, JSON.stringify(hist401.data));
+  const histOther = await call('GET', `/api/apps/${hs}/history`, undefined, keyB);
+  check('history non-owner -> 403', histOther.status === 403 && histOther.data.error.code === 'not_owner', JSON.stringify(histOther.data));
+  const hist = await call('GET', `/api/apps/${hs}/history`, undefined, keyA);
+  check('history: owner sees rows newest first', hist.status === 200 && hist.data.items.length === 3
+    && hist.data.items[0].key === 'graffiti' && hist.data.items[0].at >= before
+    && hist.data.items[1].new_value === 'smashed' && hist.data.items[1].old_value === 'intact'
+    && hist.data.items[2].old_value === null, JSON.stringify(hist.data));
+  check('history filter by key', (await call('GET', `/api/apps/${hs}/history?key=vase`, undefined, keyA)).data.items.length === 2);
+  check('history filter by writer', (await call('GET', `/api/apps/${hs}/history?writer=${a.data.agent.id}`, undefined, keyA)).data.items.length === 0);
+  check('history values JSON-parsed', hist.data.items[1].old_value === 'intact' && hist.data.items[1].new_value === 'smashed');
+  const dv0 = (await call('GET', `/api/apps/${hs}/data-version`)).data.data_version;
+
+  const rbBad = await call('POST', `/api/apps/${hs}/rollback`, {}, keyA);
+  check('rollback without since -> 400 bad_field', rbBad.status === 400 && rbBad.data.error.code === 'bad_field', JSON.stringify(rbBad.data));
+  check('rollback non-owner -> 403', (await call('POST', `/api/apps/${hs}/rollback`, { since: before }, keyB)).status === 403);
+  const rb = await call('POST', `/api/apps/${hs}/rollback`, { since: before }, keyA);
+  check('rollback restores', rb.status === 200 && rb.data.restored === 2 && rb.data.keys.includes('vase') && rb.data.keys.includes('graffiti'),
+    JSON.stringify(rb.data));
+  const nowData = await call('GET', `/api/apps/${hs}/data`);
+  check('rollback restores overwritten value', nowData.data.items.find((x) => x.key === 'vase')?.value === 'intact', JSON.stringify(nowData.data));
+  check('rollback deletes keys created after since', !nowData.data.items.some((x) => x.key === 'graffiti'));
+  const dv1 = (await call('GET', `/api/apps/${hs}/data-version`)).data.data_version;
+  check('rollback bumps data_version', dv1 === dv0 + 2, `${dv0} -> ${dv1}`);
+  const hist2 = await call('GET', `/api/apps/${hs}/history`, undefined, keyA);
+  check('rollback recorded in history', hist2.data.items.length === 5
+    && hist2.data.items.slice(0, 2).every((x) => x.writer.startsWith('rollback:'))
+    && hist2.data.items.some((x) => x.new_value === 'intact' && x.old_value === 'smashed'), JSON.stringify(hist2.data).slice(0, 300));
+  check('rollback of the rollback works', (await call('POST', `/api/apps/${hs}/rollback`, { since: before }, keyA)).data.restored === 2);
+
+  // writer filter: someone else touches a key first, then a vandal; undoing the vandal restores the earlier value
+  const ws = await pol('open');
+  await new Promise((r) => setTimeout(r, 1200));
+  const wBefore = new Date(Math.floor(Date.now() / 1000) * 1000).toISOString();
+  await call('PUT', `/api/apps/${ws}/data/sign`, { value: 'welcome' }, keyA); // the maker, inside the window
+  await call('PUT', `/api/apps/${ws}/data/sign`, { value: 'defaced' }); // an anonymous vandal, later
+  const vandal = (await call('GET', `/api/apps/${ws}/history?key=sign`, undefined, keyA)).data.items[0].writer;
+  const wr = await call('POST', `/api/apps/${ws}/rollback`, { since: wBefore, writer: vandal }, keyA);
+  check('rollback by writer finds a later edit', wr.data.restored === 1
+    && (await call('GET', `/api/apps/${ws}/data?key=sign`)).data.value === 'welcome', JSON.stringify(wr.data));
+
+  // MCP tools for history and rollback
+  const mh = await mcp('tools/call', { name: 'app_data_history', arguments: { slug: hs, limit: 2, agent_key: keyA } });
+  check('mcp app_data_history', mh.result?.structuredContent?.items?.length === 2, JSON.stringify(mh).slice(0, 300));
+  const mhNo = await mcp('tools/call', { name: 'app_data_history', arguments: { slug: hs, agent_key: keyB } });
+  check('mcp app_data_history non-owner -> error', mhNo.result?.isError === true && mhNo.result.structuredContent.error.code === 'not_owner');
+  const mr = await mcp('tools/call', { name: 'rollback_app_data', arguments: { slug: hs, since: before, agent_key: keyA } });
+  check('mcp rollback_app_data', mr.result?.structuredContent?.restored === 2, JSON.stringify(mr).slice(0, 300));
+  const mrBad = await mcp('tools/call', { name: 'rollback_app_data', arguments: { slug: hs, agent_key: keyA } });
+  check('mcp rollback without since -> error', mrBad.result?.isError === true && mrBad.result.structuredContent.error.code === 'bad_field');
+
+  // the undo control on the charm page is maker-only
+  const page = await (await fetch(`${BASE}/a/${hs}`)).text();
+  check('app page shows the policy line', page.includes('Anyone can change this charm&#39;s shared data'), 'policy line missing');
+  check('app page has maker-only undo', page.includes('data-rollback') && page.includes('data-owner'));
+
+  for (const s of [openS, appS, ownS, hs, ws]) check(`delete ${s}`, (await call('DELETE', `/api/apps/${s}`, undefined, keyA)).status === 200);
+
   // hosted runtime
   const run = await fetch(`${BASE}/run/${slug}`);
   const runHtml = await run.text();
@@ -199,7 +302,8 @@ async function main() {
   check('mcp notification -> 202', notif.status === 202);
   const tools = await mcp('tools/list', {});
   const names = tools.result?.tools?.map((t) => t.name) || [];
-  check('mcp tools/list', names.includes('browse_apps') && names.includes('write_app_data') && names.includes('leave_message'), names.join(','));
+  check('mcp tools/list', names.includes('browse_apps') && names.includes('write_app_data') && names.includes('leave_message')
+    && names.includes('app_data_history') && names.includes('rollback_app_data'), names.join(','));
   check('mcp tools have no run fn', tools.result.tools.every((t) => !('run' in t)));
   const br = await mcp('tools/call', { name: 'browse_apps', arguments: { query: tag } });
   check('mcp browse', br.result?.structuredContent?.apps?.length >= 2, JSON.stringify(br).slice(0, 300));

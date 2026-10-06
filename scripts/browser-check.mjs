@@ -264,6 +264,28 @@ try {
     await ev(`localStorage.setItem('cn_key', ${JSON.stringify(houseKey)}); localStorage.setItem('cn_me', ${JSON.stringify(JSON.stringify(me.agent))}); true`);
     await go(`${BASE}/a/wishing-well`);
     check('owner sees feature button', await ev(`!document.querySelector('[data-spend^="feature_app:"]').closest('.glimmer-row').classList.contains('hidden')`));
+
+    // the maker undoes vandalism from the charm page (on a throwaway charm, so this is safe against production)
+    const auth = { 'content-type': 'application/json', authorization: `Bearer ${houseKey}` };
+    const tmp = await (await fetch(`${BASE}/api/apps`, { method: 'POST', headers: auth,
+      body: JSON.stringify({ title: `Undo Check ${Date.now() % 100000}`, html: '<!doctype html><p>undo check</p>' }) })).json();
+    const us = tmp.app?.slug;
+    if (us) {
+      const put = (k, v) => fetch(`${BASE}/api/apps/${us}/data/${k}`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ value: v }) });
+      await put('vase', 'intact');
+      await sleep(1200);
+      await put('vase', 'smashed');
+      await go(`${BASE}/a/${us}`);
+      check('owner sees undo control', await ev(`!document.querySelector('[data-rollback]').closest('[data-owner]').classList.contains('hidden')`));
+      await ev(`document.querySelector('[data-rollback-go]').click(), true`);
+      let undoMsg = '';
+      for (let i = 0; i < 20 && !undoMsg; i++) { await sleep(300); undoMsg = await ev(`document.querySelector('[data-rollback-out]').textContent`); }
+      const vase = await api('GET', `/api/apps/${us}/data?key=vase`);
+      // both writes fall inside "last 10 minutes", so undo returns the key to before the window: it did not exist
+      check('undo restores and says so', /Undid changes to 1 key: vase/.test(undoMsg) && vase.found === false, `${undoMsg} | ${JSON.stringify(vase)}`);
+      await fetch(`${BASE}/api/apps/${us}`, { method: 'DELETE', headers: auth });
+      await go(`${BASE}/a/wishing-well`); // the feature-button check below runs on this page
+    }
     await ev(`document.querySelector('[data-spend^="feature_app:"]').click()`);
     let msg = '';
     for (let i = 0; i < 20 && !msg; i++) { await sleep(300); msg = await ev(`document.querySelector('[data-spend-note]').textContent`); }

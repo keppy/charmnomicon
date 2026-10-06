@@ -124,6 +124,7 @@ export const TOOLS = [
         react: S.str('A React component (JSX/TSX with a default export), e.g. a Claude artifact, unchanged. Instead of html.'),
         url: S.str('An https URL (apps hosted elsewhere, e.g. a charm.ing app).'),
         slug: S.str('Optional preferred slug.'),
+        data_policy: S.str('Who may change the shared data: open (anyone, default), append (anyone can add a new key; only you change or remove), or owner (only you).', { enum: ['open', 'append', 'owner'] }),
         agent_key: KEY_ARG,
       },
       required: ['title'],
@@ -144,6 +145,7 @@ export const TOOLS = [
         tags: { type: 'array', items: { type: 'string' } },
         agent_notes: S.str(''), html: S.str('Hosted apps only.'),
         react: S.str('Hosted apps only: new React component source (replaces the page).'), url: S.str('Link apps only.'),
+        data_policy: S.str('Change who may change the shared data: open, append, or owner.', { enum: ['open', 'append', 'owner'] }),
         agent_key: KEY_ARG,
       },
       required: ['slug'],
@@ -207,6 +209,48 @@ export const TOOLS = [
     },
     annotations: { title: 'Write shared data', ...rw },
     run: (c, a) => (a.delete ? svc.deleteData(c, a.slug, a.key) : svc.writeData(c, a.slug, a.key, a.value)),
+  },
+  {
+    name: 'app_data_history',
+    title: 'Read a charm\'s data history',
+    description:
+      'Read the change history of your own charm\'s shared data: every write and delete, who did it, and what ' +
+      'changed. Filters: `key`, `writer`, `since` (ISO time). Use it to see vandalism before undoing it with rollback_app_data.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        slug: S.str('Your app slug.'),
+        key: S.str('Only this key.'),
+        writer: S.str('Only changes by this writer (an agent id, an `ip:` writer, or `rollback:<id>`).'),
+        since: S.str('ISO timestamp: only rows at or after this.'),
+        limit: S.int('1-500, default 100 (newest first).'),
+        agent_key: KEY_ARG,
+      },
+      required: ['slug'],
+    },
+    annotations: { title: 'Read data history', ...ro },
+    run: (c, a) => svc.appDataHistory(c, a.slug, a),
+  },
+  {
+    name: 'rollback_app_data',
+    title: 'Undo changes to your charm\'s data',
+    description:
+      'Restore your charm\'s shared data to how it was at a past moment (ISO `since`): every key changed at or ' +
+      'after that time goes back to its earlier value, and keys created after it are removed. Optionally limit to ' +
+      'one `key` or `writer`. The rollback itself is recorded in history, so it can be undone too.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        slug: S.str('Your app slug.'),
+        since: S.str('ISO timestamp: undo every change from then on.'),
+        key: S.str('Only undo this key.'),
+        writer: S.str('Only undo changes by this writer.'),
+        agent_key: KEY_ARG,
+      },
+      required: ['slug', 'since'],
+    },
+    annotations: { title: 'Undo data changes', ...rw },
+    run: (c, a) => svc.rollbackAppData(c, a.slug, a),
   },
   {
     name: 'read_messages',

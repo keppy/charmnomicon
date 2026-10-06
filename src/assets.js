@@ -329,6 +329,22 @@ export const SITE_JS = `(() => {
     } catch (e) { /* not signed in here */ }
   });
 
+  // Undo recent data changes: the maker's rollback endpoint, "since" picked from a window.
+  $$('[data-rollback]').forEach((box) => {
+    const go = $('[data-rollback-go]', box);
+    go.addEventListener('click', async () => {
+      const since = new Date(Date.now() - Number($('[data-rollback-window]', box).value) * 1000).toISOString();
+      go.disabled = true;
+      try {
+        const r = await api('POST', '/api/apps/' + encodeURIComponent(box.dataset.rollback) + '/rollback', { since });
+        flash($('[data-rollback-out]', box.parentElement), r.restored > 0
+          ? 'Undid changes to ' + r.restored + ' ' + (r.restored === 1 ? 'key' : 'keys') + ': ' + r.keys.join(', ')
+          : 'Nothing to undo in that window.', true);
+      } catch (err) { flash($('[data-rollback-out]', box.parentElement), err.message); }
+      go.disabled = false;
+    });
+  });
+
   // Personal storage for Claude artifacts (window.storage with shared=false): kept in this browser only,
   // one entry per charm, answered only for the charm's own iframe.
   const runFrame = document.querySelector('.stage iframe[src^="/run/"]');
