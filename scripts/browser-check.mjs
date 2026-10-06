@@ -116,7 +116,7 @@ try {
   // agent write -> human sees it live
   await api('PUT', '/api/apps/pixel-garden/data/' + encodeURIComponent('px:5,5'), { value: 6 });
   let bg = '';
-  for (let i = 0; i < 20 && !bg.includes('164'); i++) {
+  for (let i = 0; i < 60 && !bg.includes('164'); i++) {
     await sleep(300);
     bg = await ev(`getComputedStyle(document.querySelectorAll('#grid div')[5 * 24 + 5]).backgroundColor`);
   }

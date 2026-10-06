@@ -38,21 +38,38 @@ export const RUNTIME_JS = `(() => {
     async info() { return call('GET', ''); },
     async messages() { return (await call('GET', '').then((r) => r.recent_messages)); },
     onChange(cb, ms) {
+      // Poll a cheap version counter. Back off while nothing changes (up to 15s) and snap back
+      // to the base interval on any change, so idle tabs cost little and active ones stay live.
+      const base = Math.max(1000, ms || 2500);
+      let wait = base;
       let last = null;
       let stopped = false;
+      let timer = null;
+      let busy = false;
       const tick = async () => {
-        if (stopped) return;
+        if (stopped || busy) return;
+        busy = true;
         if (!document.hidden) {
           try {
             const v = (await call('GET', '/data-version')).data_version;
-            if (last !== null && v !== last) cb(v);
+            if (last !== null && v !== last) { cb(v); wait = base; } else { wait = Math.min(15000, wait * 1.5); }
             last = v;
-          } catch (e) { /* offline or rate limited; try again next tick */ }
+          } catch (e) { wait = Math.min(15000, wait * 2); /* offline or rate limited */ }
         }
-        setTimeout(tick, Math.max(1000, ms || 2500));
+        busy = false;
+        timer = setTimeout(tick, wait);
       };
       tick();
-      return () => { stopped = true; };
+      // Interaction means someone is here: poll at the base rate again, starting now-ish.
+      const poke = () => {
+        if (wait === base) return;
+        wait = base;
+        clearTimeout(timer);
+        timer = setTimeout(tick, base);
+      };
+      addEventListener('pointerdown', poke);
+      addEventListener('keydown', poke);
+      return () => { stopped = true; clearTimeout(timer); removeEventListener('pointerdown', poke); removeEventListener('keydown', poke); };
     },
   };
   window.charm = charm;
