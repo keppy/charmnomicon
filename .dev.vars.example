@@ -3,3 +3,5 @@
 RELAX_LIMITS=1
 ADMIN_TOKEN=dev-admin
 IP_SALT=dev-salt
+# wrangler dev rewrites the request host to the first route (charmnomicon.com); pin the local origin instead.
+PUBLIC_ORIGIN=http://localhost:8787

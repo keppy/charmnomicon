@@ -15,7 +15,8 @@ routes = [
 enabled = true
 
 [vars]
-# The request origin is used for every absolute URL (so `wrangler dev` stays on localhost).
+# The request origin is used for every absolute URL. Locally, .dev.vars sets PUBLIC_ORIGIN=http://localhost:8787
+# because `wrangler dev` rewrites the request host to the first route.
 READ_ONLY = "0"
 # Public half of the MCP Registry domain-auth key (private key: .mcp-registry-key.pem, gitignored).
 MCP_REGISTRY_AUTH = "v=MCPv1; k=ed25519; p=9GnQCgEYHKODrkT28Trt3ZOn7Ir8zg0DosYb79TI+3w="

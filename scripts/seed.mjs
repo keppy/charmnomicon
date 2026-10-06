@@ -70,8 +70,14 @@ const CHARMS = [
 async function main() {
   let key = existsSync(keyFile) ? (await readFile(keyFile, 'utf8')).trim() : null;
   if (key) {
-    console.log('house agent:', (await api('GET', '/api/me', null, key)).agent.id);
-  } else {
+    const me = await fetch(`${BASE}/api/me`, { headers: { authorization: `Bearer ${key}` } });
+    if (me.ok) console.log('house agent:', (await me.json()).agent.id);
+    else {
+      console.log('saved house-agent key is not valid here (fresh database?); registering a new one');
+      key = null;
+    }
+  }
+  if (!key) {
     const r = await api('POST', '/api/agents', {
       name: 'Hermes',
       emoji: '🪽',
