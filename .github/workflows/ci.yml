@@ -29,6 +29,8 @@ jobs:
           cat wrangler.log; exit 1
       - run: node scripts/seed.mjs
       - run: node scripts/smoke.mjs
+        env:
+          CHARM_WRANGLER_CONFIG: wrangler.ci.toml
       - run: CHROME=/usr/bin/google-chrome node scripts/browser-check.mjs
       - if: failure()
         run: cat wrangler.log

@@ -151,6 +151,8 @@ export async function purgeHidden(env, { days = PURGE_DAYS } = {}) {
   const apps = await env.DB.prepare('SELECT slug FROM apps WHERE hidden = 1 AND hidden_at < ?1 LIMIT 100').bind(cutoff).all();
   for (const { slug } of apps.results) {
     await env.DB.batch([
+      env.DB.prepare("DELETE FROM glimmers WHERE target_type = 'app' AND target_id = ?1").bind(slug),
+      env.DB.prepare("DELETE FROM glimmers WHERE target_type = 'message' AND target_id IN (SELECT id FROM messages WHERE app_slug = ?1)").bind(slug),
       env.DB.prepare('DELETE FROM app_data WHERE app_slug = ?1').bind(slug),
       env.DB.prepare('DELETE FROM messages WHERE app_slug = ?1').bind(slug),
       env.DB.prepare('DELETE FROM apps WHERE slug = ?1').bind(slug),
@@ -159,7 +161,10 @@ export async function purgeHidden(env, { days = PURGE_DAYS } = {}) {
   }
   const msgs = await env.DB.prepare('SELECT id FROM messages WHERE hidden = 1 AND hidden_at < ?1 LIMIT 500').bind(cutoff).all();
   for (const { id } of msgs.results) {
-    await env.DB.prepare('DELETE FROM messages WHERE id = ?1').bind(id).run();
+    await env.DB.batch([
+      env.DB.prepare("DELETE FROM glimmers WHERE target_type = 'message' AND target_id = ?1").bind(id),
+      env.DB.prepare('DELETE FROM messages WHERE id = ?1').bind(id),
+    ]);
     await log(env, 'message', id, 'deleted', 'purge', `hidden over ${days} days`);
   }
   const t = now();

@@ -126,6 +126,9 @@ textarea { width: 100%; min-height: 84px; resize: vertical; }
 footer.bottom { border-top: 1.5px dashed #2b214033; margin-top: 30px; padding: 22px 0 40px; color: var(--ink-2); font-size: 14px; display: flex; gap: 16px; flex-wrap: wrap; }
 .empty { padding: 26px; text-align: center; color: var(--ink-2); background: #fffaf088; border: 1.5px dashed #2b214033; border-radius: var(--r); }
 .hidden { display: none !important; }
+.glimmer-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+.glim-big[aria-pressed="true"], .note .foot button.glim[aria-pressed="true"] { background: #fff1c2; border-color: var(--gold); color: #7a5410; }
+.note .foot button.glim { text-decoration: none; border: 1px solid transparent; border-radius: 999px; padding: 1px 7px; }
 `;
 
 export const SITE_JS = `(() => {
@@ -237,6 +240,31 @@ export const SITE_JS = `(() => {
       b.disabled = true;
     } catch (err) { b.textContent = err.message; }
   }));
+
+  // glimmers: give / take back, on charms and notes
+  async function syncGlimmer(btn, data) {
+    btn.setAttribute('aria-pressed', String(!!(data.you && data.you.given)));
+    btn.dataset.given = data.you && data.you.given ? '1' : '';
+    const n = $('[data-glimmer-count]', btn);
+    if (n) n.textContent = data.glimmers.total;
+    const label = $('.glim-label', btn);
+    if (label) label.textContent = data.you && data.you.given ? 'Glimmered' : 'Give a glimmer';
+    const note = btn.parentElement && $('[data-glimmer-note]', btn.parentElement);
+    if (note) note.textContent = data.you && data.you.given && !data.you.counted ? data.you.reason : '';
+    btn.title = data.you && data.you.given && !data.you.counted ? data.you.reason : 'give a glimmer';
+  }
+  $$('[data-glimmer]').forEach((btn) => {
+    const [type, ...rest] = btn.dataset.glimmer.split(':');
+    const id = rest.join(':');
+    const path = '/api/glimmers/' + type + '/' + encodeURIComponent(id);
+    if (btn.hasAttribute('data-glimmer-status') && store.key) api('GET', path).then((d) => syncGlimmer(btn, d)).catch(() => {});
+    btn.addEventListener('click', async () => {
+      if (!store.key) { location.href = '/hello'; return; }
+      try {
+        syncGlimmer(btn, await api(btn.dataset.given ? 'DELETE' : 'POST', path));
+      } catch (err) { btn.title = err.message; const note = btn.parentElement && $('[data-glimmer-note]', btn.parentElement); if (note) note.textContent = err.message; }
+    });
+  });
 
   // copy buttons
   $$('[data-copy]').forEach((b) => b.addEventListener('click', async () => {

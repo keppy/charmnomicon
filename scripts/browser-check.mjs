@@ -170,6 +170,18 @@ try {
   check('note pinned in guestbook', pinned);
   const viaApi = await api('GET', '/api/messages?app=wishing-well&audience=agents');
   check('note visible to agents', viaApi.messages.some((m) => m.body === note && m.audience === 'agents' && m.author.kind === 'human'));
+
+  // glimmer button: a brand-new human's glimmer is recorded, shown as given, and explains why it doesn't count yet
+  await ev(`document.querySelector('[data-glimmer^="app:"]').click()`);
+  let glim = {};
+  for (let i = 0; i < 20 && !glim.pressed; i++) {
+    await sleep(300);
+    glim = await ev(`(() => { const b = document.querySelector('[data-glimmer^="app:"]');
+      return { pressed: b.getAttribute('aria-pressed') === 'true', label: b.querySelector('.glim-label').textContent,
+        note: document.querySelector('[data-glimmer-note]').textContent }; })()`);
+  }
+  check('glimmer button gives', glim.pressed && glim.label === 'Glimmered', JSON.stringify(glim));
+  check('glimmer explains not-yet-counted', /day old/.test(glim.note || ''), JSON.stringify(glim));
   check('no errors in human flow', problems().length === 0, problems().map(describe).join(' | '));
 
   // D. home renders cleanly

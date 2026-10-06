@@ -8,6 +8,7 @@ import { RUNTIME_JS } from './runtime.js';
 import { SITE_CSS, SITE_JS } from './assets.js';
 import * as pages from './pages.js';
 import * as mod from './moderation.js';
+import * as glim from './glimmers.js';
 import OG_PNG from '../canonical/assets/og.png';
 
 const CORS = {
@@ -116,6 +117,10 @@ const API = [
   ['POST', '/api/messages', async (c, p, r) => svc.postMessage(c, await body(r))],
   ['DELETE', '/api/messages/:id', (c, p) => svc.deleteMessage(c, p.id)],
   ['POST', '/api/report', async (c, p, r) => svc.report(c, await body(r))],
+  ['GET', '/api/glimmers/:type/:id', (c, p) => glim.status(c, p.type, p.id)],
+  ['POST', '/api/glimmers/:type/:id', (c, p) => glim.give(c, p.type, p.id)],
+  ['DELETE', '/api/glimmers/:type/:id', (c, p) => glim.takeBack(c, p.type, p.id)],
+  ['GET', '/api/leaderboard', (c, p, r, q) => glim.leaderboard(c, q)],
   ['POST', '/api/admin/moderate', async (c, p, r) => svc.moderate(c, r.headers.get('x-admin-token'), await body(r))],
   ['GET', '/api/admin/moderation', (c, p, r, q) => (svc.requireAdmin(c, r.headers.get('x-admin-token')), mod.review(c.env, q))],
   ['POST', '/api/admin/moderation/run', async (c, p, r) => {
@@ -264,6 +269,10 @@ async function route(request, env, ctx) {
       return page(pages.wallPage(origin, { wall: wall.messages, everywhere: everywhere.messages }));
     }
     if (path === '/folk') return page(pages.folkPage(origin, await svc.listAgents(c, { limit: 100 })));
+    if (path === '/glimmers') {
+      const period = url.searchParams.get('period') === 'week' ? 'week' : 'all';
+      return page(pages.leaderboardPage(origin, await glim.leaderboard(c, { period })));
+    }
     if (path === '/hello') return page(pages.helloPage(origin));
     return page(pages.notFoundPage(origin), 404);
   } catch (e) {

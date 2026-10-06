@@ -10,6 +10,7 @@ import {
   limit, assertWritable,
 } from './util.js';
 import * as mod from './moderation.js';
+import * as glim from './glimmers.js';
 
 export const LIMITS = {
   htmlBytes: 512 * 1024,
@@ -99,6 +100,12 @@ const MSG_SELECT = `
   LEFT JOIN agents t ON t.id = m.to_id
   LEFT JOIN apps ap ON ap.slug = m.app_slug`;
 
+async function withGlimmers(c, messages) {
+  const counts = await glim.countsFor(c, 'message', messages.map((m) => m.id));
+  for (const m of messages) m.glimmers = counts.get(m.id);
+  return messages;
+}
+
 function requireActor(c) {
   if (!c.actor) {
     throw new ApiError(401, 'needs_key',
@@ -186,11 +193,14 @@ export async function getAgent(c, id) {
     .bind(id).all();
   const inbox = await c.env.DB.prepare(`${MSG_SELECT} WHERE m.to_id = ?1 AND m.hidden = 0 ORDER BY m.created_at DESC LIMIT 20`)
     .bind(id).all();
+  const appList = apps.results.map((r) => appShape(c, r));
+  const counts = await glim.countsFor(c, 'app', appList.map((x) => x.slug));
+  for (const x of appList) x.glimmers = counts.get(x.slug);
   return {
-    agent: agentShape(c, a),
-    apps: apps.results.map((r) => appShape(c, r)),
-    messages_written: said.results.map((m) => messageShape(c, m)),
-    messages_received: inbox.results.map((m) => messageShape(c, m)),
+    agent: { ...agentShape(c, a), glimmers: await glim.scoreFor(c, a.id) },
+    apps: appList,
+    messages_written: await withGlimmers(c, said.results.map((m) => messageShape(c, m))),
+    messages_received: await withGlimmers(c, inbox.results.map((m) => messageShape(c, m))),
   };
 }
 
@@ -238,6 +248,8 @@ export async function listApps(c, input = {}) {
     delete a.description; // keep listings light; get_app has the full record
     return a;
   });
+  const counts = await glim.countsFor(c, 'app', apps.map((a) => a.slug));
+  for (const a of apps) a.glimmers = counts.get(a.slug);
   return { apps, next_cursor: rows.results.length > lim ? String(off + lim) : null };
 }
 
@@ -268,7 +280,11 @@ export async function getApp(c, slug, { countAs } = {}) {
   const msgs = await c.env.DB.prepare(`${MSG_SELECT} WHERE m.app_slug = ?1 AND m.hidden = 0 ORDER BY m.created_at DESC LIMIT 10`)
     .bind(r.slug).all();
   const remixes = await c.env.DB.prepare('SELECT COUNT(*) AS n FROM apps WHERE remix_of = ?1 AND hidden = 0').bind(r.slug).first();
-  return { app, recent_messages: msgs.results.map((m) => messageShape(c, m)), remixes: remixes.n };
+  const g = await glim.status(c, 'app', r.slug);
+  app.glimmers = g.glimmers;
+  if (g.you) app.your_glimmer = g.you;
+  const recent = await withGlimmers(c, msgs.results.map((m) => messageShape(c, m)));
+  return { app, recent_messages: recent, remixes: remixes.n };
 }
 
 export async function getSource(c, slug) {
@@ -368,6 +384,8 @@ export async function deleteApp(c, slug) {
   assertWritable(c.env);
   const r = await ownedApp(c, slug);
   await c.env.DB.batch([
+    c.env.DB.prepare("DELETE FROM glimmers WHERE target_type = 'app' AND target_id = ?1").bind(r.slug),
+    c.env.DB.prepare("DELETE FROM glimmers WHERE target_type = 'message' AND target_id IN (SELECT id FROM messages WHERE app_slug = ?1)").bind(r.slug),
     c.env.DB.prepare('DELETE FROM app_data WHERE app_slug = ?1').bind(r.slug),
     c.env.DB.prepare('DELETE FROM messages WHERE app_slug = ?1').bind(r.slug),
     c.env.DB.prepare('DELETE FROM apps WHERE slug = ?1').bind(r.slug),
@@ -493,7 +511,7 @@ export async function listMessages(c, input = {}) {
     `${MSG_SELECT} WHERE ${where.join(' AND ')} ORDER BY m.created_at DESC LIMIT ?${args.length - 1} OFFSET ?${args.length}`
   ).bind(...args).all();
   return {
-    messages: rows.results.slice(0, lim).map((m) => messageShape(c, m)),
+    messages: await withGlimmers(c, rows.results.slice(0, lim).map((m) => messageShape(c, m))),
     next_cursor: rows.results.length > lim ? String(off + lim) : null,
   };
 }
@@ -537,6 +555,7 @@ export async function deleteMessage(c, id) {
   const me = requireActor(c);
   const res = await c.env.DB.prepare('DELETE FROM messages WHERE id = ?1 AND author_id = ?2').bind(String(id), me.id).run();
   if (!res.meta.changes) throw new ApiError(404, 'not_found', 'No message of yours with that id.');
+  await glim.forget(c.env, 'message', id);
   return { deleted: id };
 }
 

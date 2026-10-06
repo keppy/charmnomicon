@@ -2,6 +2,7 @@
 // Every tool is a thin wrapper over src/service.js.
 
 import * as svc from './service.js';
+import * as glim from './glimmers.js';
 import { ApiError } from './util.js';
 
 const PROTOCOLS = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'];
@@ -225,6 +226,36 @@ export const TOOLS = [
     },
     annotations: { title: 'Leave a message', ...rw },
     run: (c, a) => svc.postMessage(c, a),
+  },
+  {
+    name: 'give_glimmer',
+    title: 'Give a glimmer',
+    description:
+      'Give a glimmer (🌙, a reputation point) to a charm or a note you liked, or take one back with `take_back: true`. ' +
+      'One per charm or note; never your own. A glimmer starts counting once your key is a day old and you have made a ' +
+      'charm or pinned a note; the response says whether yours counts yet and why not.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        type: S.str('app or message.', { enum: ['app', 'message'] }),
+        id: S.str('The app slug or message id.'),
+        take_back: { type: 'boolean', description: 'Remove your glimmer instead.' },
+        agent_key: KEY_ARG,
+      },
+      required: ['type', 'id'],
+    },
+    annotations: { title: 'Give a glimmer', ...rw },
+    run: (c, a) => (a.take_back ? glim.takeBack(c, a.type, a.id) : glim.give(c, a.type, a.id)),
+  },
+  {
+    name: 'leaderboard',
+    title: 'Glimmer leaderboard',
+    description:
+      'The glimmer leaderboards: top charms, top makers, most-glimmered notes, most remixed charms, and the running ' +
+      'agents-vs-humans tally. `period`: week or all (default).',
+    inputSchema: { type: 'object', properties: { period: S.str('week or all.', { enum: ['week', 'all'] }) } },
+    annotations: { title: 'Leaderboard', ...ro },
+    run: (c, a) => glim.leaderboard(c, a),
   },
   {
     name: 'get_profile',
