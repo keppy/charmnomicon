@@ -4,7 +4,7 @@
 // iframe, live updates from agent writes, and the human hello -> note flow. No dependencies.
 
 import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -187,6 +187,73 @@ try {
   check('glimmer button gives', glim.pressed && glim.label === 'Glimmered', JSON.stringify(glim));
   check('glimmer explains not-yet-counted', /day old/.test(glim.note || ''), JSON.stringify(glim));
   check('spend buttons hidden from non-owners', await ev(`document.querySelector('[data-spend^="feature_app:"]').closest('.glimmer-row').classList.contains('hidden')`));
+
+  // D. a Claude-style React artifact: compiles, renders (Tailwind, lucide, shadcn stand-ins), and window.storage works:
+  // shared data lands in the charm's public data, personal data stays in this browser's localStorage for the page.
+  const artifact = readFileSync(new URL('../seed/artifacts/seed-swap.tsx', import.meta.url), 'utf8');
+  const pub = await (await fetch(`${BASE}/api/apps`, {
+    method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${hello.key}` },
+    body: JSON.stringify({ title: `Browser Seed Swap ${Math.random().toString(36).slice(2, 6)}`, emoji: '🌱', react: artifact }),
+  })).json();
+  const rs = pub.app?.slug;
+  check('publish artifact', !!rs, JSON.stringify(pub).slice(0, 200));
+  if (rs) {
+    events.length = 0;
+    const inFrame = async (expression) => {
+      for (let i = 0; i < 30; i++) {
+        const { targetInfos } = await send('Target.getTargets');
+        const t = targetInfos.find((x) => x.type === 'iframe' && x.url === `${BASE}/run/${rs}`);
+        if (t) {
+          const { sessionId: F } = await send('Target.attachToTarget', { targetId: t.targetId, flatten: true });
+          const r = await send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true }, F);
+          await send('Target.detachFromTarget', { sessionId: F }).catch(() => {});
+          return r.result.value;
+        }
+        await sleep(300);
+      }
+      return undefined;
+    };
+    const waitFrame = async (expression, ok, tries = 60) => {
+      let v;
+      for (let i = 0; i < tries; i++) {
+        v = await inFrame(expression).catch(() => undefined);
+        if (ok(v)) return v;
+        await sleep(400);
+      }
+      return v;
+    };
+    await go(`${BASE}/a/${rs}`);
+    const status = await waitFrame(`document.getElementById('status')?.textContent`, (v) => v === 'ready');
+    check('artifact renders and loads storage', status === 'ready', String(status));
+    const look = await inFrame(`(() => ({
+      title: document.querySelector('h3')?.textContent,
+      icons: document.querySelectorAll('svg.lucide').length,
+      bg: getComputedStyle(document.querySelector('.bg-emerald-50')).backgroundColor,
+      tabs: document.querySelectorAll('[role=tab]').length,
+    }))()`);
+    check('artifact uses lucide, tailwind, shadcn', look && look.title?.includes('Seed Swap') && look.icons >= 2 &&
+      look.bg === 'rgb(236, 253, 245)' && look.tabs === 2, JSON.stringify(look));
+    await inFrame(`(() => {
+      const el = document.getElementById('seed-name');
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, 'tomato');
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      setTimeout(() => document.getElementById('plant').click(), 50);
+      return true;
+    })()`);
+    const saved = await waitFrame(`document.getElementById('status')?.textContent`, (v) => v === 'saved', 40);
+    check('artifact saves', saved === 'saved', String(saved));
+    const shared = await api('GET', `/api/apps/${rs}/data?key=garden`);
+    check('shared storage -> public charm data', typeof shared.value === 'string' && shared.value.includes('tomato'), JSON.stringify(shared));
+    const personalLs = await ev(`localStorage.getItem('cn_personal:' + ${JSON.stringify(rs)})`);
+    check('personal storage stays in this browser', !!personalLs && personalLs.includes('tomato') && personalLs.includes('my-seeds'), String(personalLs));
+    const leaked = await api('GET', `/api/apps/${rs}/data?key=my-seeds`);
+    check('personal storage not sent to the server', leaked.found === false, JSON.stringify(leaked));
+    await go(`${BASE}/a/${rs}`);
+    const mine = await waitFrame(`document.getElementById('mine')?.textContent`, (v) => typeof v === 'string' && v.includes('tomato'));
+    check('personal storage survives a reload', typeof mine === 'string' && mine.includes('tomato'), String(mine));
+    check('no errors in artifact', problems().length === 0, problems().map(describe).join(' | '));
+    await fetch(`${BASE}/api/apps/${rs}`, { method: 'DELETE', headers: { authorization: `Bearer ${hello.key}` } });
+  }
 
   // the maker (house agent, if its seed key is on disk for this base) sees the feature button on its own charm
   const { existsSync: ex, readFileSync: rd } = await import('node:fs');

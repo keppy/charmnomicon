@@ -11,6 +11,7 @@ import {
 } from './util.js';
 import * as mod from './moderation.js';
 import * as glim from './glimmers.js';
+import { wrapReact, extractArtifact } from './artifact.js';
 
 export const LIMITS = {
   htmlBytes: 512 * 1024,
@@ -316,7 +317,11 @@ export async function getSource(c, slug) {
   if (r.kind !== 'hosted') {
     throw new ApiError(400, 'not_hosted', `\`${slug}\` is a link to ${r.url}; its source lives there.`);
   }
-  return { slug: r.slug, version: r.version, html: r.html };
+  const art = extractArtifact(r.html);
+  return art
+    ? { slug: r.slug, version: r.version, format: 'react', react: art.source, html: r.html,
+      note: 'Published from a React component. Change it with update_app {react}; `html` is the generated page.' }
+    : { slug: r.slug, version: r.version, format: 'html', html: r.html };
 }
 
 function appFields(input, { partial = false } = {}) {
@@ -353,12 +358,14 @@ export async function publishApp(c, input, { remixOf = null } = {}) {
   await limit(c.env, `pub:${me.id}`, 20, 3600);
   await limit(c.env, `pubip:${c.ip}`, 40, 3600);
   const f = appFields(input);
-  const hasHtml = input?.html !== undefined && input?.html !== null && input?.html !== '';
-  const hasUrl = input?.url !== undefined && input?.url !== null && input?.url !== '';
-  if (hasHtml === hasUrl) {
-    throw new ApiError(400, 'html_or_url', 'Send exactly one of `html` (we host it) or `url` (an app hosted elsewhere).');
+  const given = (k) => input?.[k] !== undefined && input?.[k] !== null && input?.[k] !== '';
+  const hasUrl = given('url');
+  if ([given('html'), given('react'), hasUrl].filter(Boolean).length !== 1) {
+    throw new ApiError(400, 'html_or_url',
+      'Send exactly one of `html` (a page we host), `react` (a React component, e.g. a Claude artifact, that we host), or `url` (an app hosted elsewhere).');
   }
-  const html = hasHtml ? checkHtml(input.html) : null;
+  const hasHtml = !hasUrl;
+  const html = hasUrl ? null : checkHtml(given('react') ? wrapReact({ title: f.title, source: input.react }) : input.html);
   const url = hasUrl ? httpsUrl(input, 'url', { required: true }) : null;
   const slug = await freeSlug(c, input?.slug || f.title);
   const t = now();
@@ -387,9 +394,12 @@ export async function updateApp(c, slug, input) {
       { current_version: r.version });
   }
   const f = appFields(input, { partial: true });
-  if (input?.html !== undefined) {
-    if (r.kind !== 'hosted') throw new ApiError(400, 'not_hosted', 'Link apps take `url`, not `html`.');
-    f.html = checkHtml(input.html);
+  if (input?.html !== undefined && input?.react !== undefined) {
+    throw new ApiError(400, 'html_or_react', 'Send `html` or `react`, not both.');
+  }
+  if (input?.html !== undefined || input?.react !== undefined) {
+    if (r.kind !== 'hosted') throw new ApiError(400, 'not_hosted', 'Link apps take `url`, not `html` or `react`.');
+    f.html = checkHtml(input.react !== undefined ? wrapReact({ title: f.title ?? r.title, source: input.react }) : input.html);
   }
   if (input?.url !== undefined) {
     if (r.kind !== 'link') throw new ApiError(400, 'not_link', 'Hosted apps take `html`, not `url`.');
@@ -427,7 +437,7 @@ export async function remixApp(c, slug, input = {}) {
     description: input.description ?? r.description,
     tags: input.tags ?? r.tags,
     agent_notes: input.agent_notes ?? r.agent_notes,
-    html: input.html ?? r.html,
+    ...(input.react ? { react: input.react } : { html: input.html ?? r.html }),
   }, { remixOf: r.slug });
 }
 

@@ -5,6 +5,7 @@ import { ApiError, clientIp, sha256 } from './util.js';
 import { handleMcp } from './mcp.js';
 import { llmsTxt, agentsMd, openapi, privacyMd, termsMd, ICON_SVG, CDN_ORIGINS } from './docs.js';
 import { RUNTIME_JS } from './runtime.js';
+import { LOADER_JS, UI_JS } from './artifact.js';
 import { SITE_CSS, SITE_JS } from './assets.js';
 import * as pages from './pages.js';
 import * as mod from './moderation.js';
@@ -176,6 +177,12 @@ async function route(request, env, ctx) {
   if (path === '/site.css') return text(SITE_CSS, 'text/css', { 'cache-control': 'public, max-age=300' });
   if (path === '/site.js') return text(SITE_JS, 'text/javascript', { 'cache-control': 'public, max-age=300' });
   if (path === '/runtime.js') return text(RUNTIME_JS, 'text/javascript', { 'cache-control': 'public, max-age=300' });
+  // React artifacts: the loader (classic script) and the shadcn/ui stand-ins (an ES module, so it needs CORS:
+  // hosted apps run on an opaque origin).
+  if (path === '/runtime/react.js') return text(LOADER_JS, 'text/javascript', { 'cache-control': 'public, max-age=300' });
+  if (path.startsWith('/runtime/ui/')) {
+    return text(UI_JS, 'text/javascript', { 'cache-control': 'public, max-age=300', 'access-control-allow-origin': '*' });
+  }
   if (path === '/llms.txt') return text(llmsTxt(origin), 'text/plain');
   if (path === '/agents.md' || path === '/AGENTS.md') return text(agentsMd(origin), 'text/markdown');
   if (path === '/openapi.json' || path === '/.well-known/openapi.json') return json(openapi(origin));
@@ -279,6 +286,7 @@ async function route(request, env, ctx) {
       return page(pages.leaderboardPage(origin, await glim.leaderboard(c, { period })));
     }
     if (path === '/hello') return page(pages.helloPage(origin));
+    if (path === '/bring') return page(pages.bringPage(origin));
     return page(pages.notFoundPage(origin), 404);
   } catch (e) {
     if (e instanceof ApiError && e.status === 404) return page(pages.notFoundPage(origin, e.message), 404);

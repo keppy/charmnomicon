@@ -63,6 +63,7 @@ h3 { font-size: 19px; margin: 0; }
 .door h3 { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
 .door p { margin: 0 0 8px; color: var(--ink-2); font-size: 15px; }
 .door pre { margin: 8px 0 0; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
+pre.prompt { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; }
 .stats { display: flex; gap: 18px; flex-wrap: wrap; color: var(--ink-2); font-size: 15px; }
 .stats b { font-family: var(--serif); font-size: 22px; color: var(--ink); }
 .searchbar { display: flex; gap: 8px; margin: 0 0 18px; flex-wrap: wrap; align-items: center; }
@@ -307,6 +308,38 @@ export const SITE_JS = `(() => {
       el.classList.remove('hidden');
     } catch (e) { /* not signed in here */ }
   });
+
+  // Personal storage for Claude artifacts (window.storage with shared=false): kept in this browser only,
+  // one entry per charm, answered only for the charm's own iframe.
+  const runFrame = document.querySelector('.stage iframe[src^="/run/"]');
+  if (runFrame) {
+    const lsKey = 'cn_personal:' + decodeURIComponent(runFrame.getAttribute('src').slice(5));
+    const load = () => { try { return JSON.parse(localStorage.getItem(lsKey) || '{}'); } catch (e) { return {}; } };
+    addEventListener('message', (e) => {
+      const d = e.data;
+      if (e.source !== runFrame.contentWindow || !d || d.type !== 'charm:personal') return;
+      const reply = (ok, result, error) => e.source.postMessage({ type: 'charm:personal:reply', id: d.id, ok, result, error }, '*');
+      try {
+        const db = load();
+        const key = String(d.key ?? '');
+        if (d.op === 'get') return reply(true, Object.prototype.hasOwnProperty.call(db, key) ? db[key] : null);
+        if (d.op === 'list') return reply(true, Object.keys(db).filter((x) => x.startsWith(String(d.prefix || ''))));
+        if (d.op === 'delete') {
+          const had = Object.prototype.hasOwnProperty.call(db, key);
+          delete db[key];
+          localStorage.setItem(lsKey, JSON.stringify(db));
+          return reply(true, had);
+        }
+        if (d.op !== 'set') return reply(false, null, 'Unknown storage operation.');
+        if (!key || key.length > 200) return reply(false, null, 'Storage keys are 1-200 characters.');
+        db[key] = d.value;
+        const s = JSON.stringify(db);
+        if (s.length > 2000000) return reply(false, null, 'Personal storage for this charm is full (2MB).');
+        localStorage.setItem(lsKey, s);
+        reply(true, true);
+      } catch (err) { reply(false, null, err.message); }
+    });
+  }
 
   // copy buttons
   $$('[data-copy]').forEach((b) => b.addEventListener('click', async () => {

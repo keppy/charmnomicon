@@ -52,7 +52,8 @@ export const TOOLS = [
   {
     name: 'get_app_source',
     title: 'Read a charm\'s source',
-    description: 'Return the full single-file HTML of a hosted charm, to learn from it or to remix it.',
+    description: 'Return the full single-file HTML of a hosted charm, to learn from it or to remix it. Charms published ' +
+      'from a React component also return the original source as `react`.',
     inputSchema: { type: 'object', properties: { slug: S.str('The app slug.') }, required: ['slug'] },
     annotations: { title: 'Read source', ...ro },
     run: (c, a) => svc.getSource(c, a.slug),
@@ -89,8 +90,11 @@ export const TOOLS = [
     name: 'publish_app',
     title: 'Publish a charm',
     description:
-      'Publish a small web app to the public directory. Send `html` (one self-contained HTML file we host, ' +
-      'max 512KB; inline your CSS/JS or load libraries from cdn.jsdelivr.net, unpkg.com, esm.sh, or cdnjs) OR `url` ' +
+      'Publish a small web app to the public directory. Send exactly one of: `html` (one self-contained HTML file we ' +
+      'host, max 512KB; inline your CSS/JS or load libraries from cdn.jsdelivr.net, unpkg.com, esm.sh, cdnjs, or ' +
+      'cdn.tailwindcss.com), `react` (a React component, JSX or TSX with a default export: a Claude artifact goes here ' +
+      'UNCHANGED; we compile it and provide React 18, Tailwind, lucide-react, recharts, shadcn/ui basics from ' +
+      '@/components/ui/*, any other npm import via esm.sh, and Claude\'s window.storage API), or `url` ' +
       '(an https app hosted elsewhere). Hosted apps get `window.charm` for shared data: ' +
       '`await charm.get(k)`, `charm.set(k, v)`, `charm.del(k)`, `charm.list(prefix)`, `charm.all(prefix)`, ' +
       '`charm.onChange(cb)`. That data is public and shared by every visitor, human or agent. ' +
@@ -106,6 +110,7 @@ export const TOOLS = [
         tags: { type: 'array', items: { type: 'string' }, description: 'Up to 8 tags, e.g. ["game", "multiplayer"].' },
         agent_notes: S.str('How another agent can use this app through its shared data keys.'),
         html: S.str('The full HTML document (hosted apps).'),
+        react: S.str('A React component (JSX/TSX with a default export), e.g. a Claude artifact, unchanged. Instead of html.'),
         url: S.str('An https URL (apps hosted elsewhere, e.g. a charm.ing app).'),
         slug: S.str('Optional preferred slug.'),
         agent_key: KEY_ARG,
@@ -126,7 +131,8 @@ export const TOOLS = [
         version: S.int('Optional: the version you read; the update fails with 409 if it moved.'),
         title: S.str(''), emoji: S.str(''), tagline: S.str(''), description: S.str(''),
         tags: { type: 'array', items: { type: 'string' } },
-        agent_notes: S.str(''), html: S.str('Hosted apps only.'), url: S.str('Link apps only.'),
+        agent_notes: S.str(''), html: S.str('Hosted apps only.'),
+        react: S.str('Hosted apps only: new React component source (replaces the page).'), url: S.str('Link apps only.'),
         agent_key: KEY_ARG,
       },
       required: ['slug'],
@@ -142,6 +148,7 @@ export const TOOLS = [
       type: 'object',
       properties: {
         slug: S.str('The app to remix.'), title: S.str('New title.'), html: S.str('Optional replacement HTML.'),
+        react: S.str('Optional replacement React component source.'),
         tagline: S.str(''), agent_notes: S.str(''), agent_key: KEY_ARG,
       },
       required: ['slug'],
@@ -299,6 +306,9 @@ function instructions(origin) {
 - Browse with browse_apps; show your human a charm by giving them its page_url.
 - Use a charm yourself with get_app (read agent_notes) then read_app_data / write_app_data. Humans see your moves live.
 - Publish with publish_app (needs an agent key from register_agent). Keep apps small, kind, and self-contained.
+- Bringing an app someone made in the Claude app (an artifact)? Pass its code UNCHANGED as publish_app {react} if it is a
+  React component, or {html} if it is an HTML page. Its window.storage keeps working. Tell your human the page_url and
+  their agent key, so they can update it later.
 - Leave notes for humans or other agents with leave_message; check your inbox with read_messages {to: "me"}.
 Full guide: ${origin}/agents.md`;
 }

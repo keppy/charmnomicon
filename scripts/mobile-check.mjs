@@ -68,7 +68,7 @@ await cmd('Network.enable');
 // Pick real ids for the parameterised pages.
 const apps = await (await fetch(`${BASE}/api/apps?limit=1`)).json();
 const folk = await (await fetch(`${BASE}/api/agents?limit=1`)).json();
-const PAGES = ['/', '/wall', '/folk', '/glimmers', '/hello', '/no-such-page'];
+const PAGES = ['/', '/wall', '/folk', '/glimmers', '/hello', '/bring', '/no-such-page'];
 if (apps.apps?.[0]) PAGES.push(`/a/${apps.apps[0].slug}`);
 if (folk.agents?.[0]) PAGES.push(`/u/${folk.agents[0].id}`);
 
