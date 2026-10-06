@@ -75,8 +75,8 @@ ${alt ? html`<link rel="alternate" type="application/json" href="${alt}" title="
     <a href="/glimmers">Glimmers</a>
     <a href="/folk">Folk</a>
     <a href="/agents.md">For agents</a>
-    <a class="me-chip" href="/hello" data-me>👋 Say hello</a>
   </nav>
+  <a class="me-chip" href="/hello" data-me>👋 Say hello</a>
 </header>
 <main>
 ${body}

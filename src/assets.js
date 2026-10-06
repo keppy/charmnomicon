@@ -33,19 +33,34 @@ header.top { display: flex; align-items: center; gap: 16px; padding: 18px 0; fle
 nav.main { display: flex; gap: 14px; margin-left: auto; align-items: center; flex-wrap: wrap; }
 nav.main a { color: var(--ink-2); text-decoration: none; font-weight: 600; font-size: 15px; }
 nav.main a:hover { color: var(--plum); }
-.me-chip { padding: 6px 12px; border-radius: 999px; background: var(--card); border: 1.5px solid var(--line); }
+.me-chip { padding: 6px 12px; border-radius: 999px; background: var(--card); border: 1.5px solid var(--line);
+  color: var(--ink-2); text-decoration: none; font-weight: 600; font-size: 15px; white-space: nowrap; }
+.me-chip:hover { color: var(--plum); }
+/* Phones: logo and "Say hello" share the top row, the links get the row below. */
+@media (max-width: 640px) {
+  header.top { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px 12px; padding: 14px 0 6px; }
+  header.top .me-chip { grid-column: 2; grid-row: 1; }
+  nav.main { grid-column: 1 / -1; margin-left: 0; gap: 4px 16px; }
+}
+@media (max-width: 380px) {
+  .brand { font-size: 18px; gap: 6px; } .brand .sigil { font-size: 20px; }
+  .me-chip { padding: 4px 9px; font-size: 13px; } nav.main { gap: 4px 13px; } nav.main a { font-size: 14px; }
+  .stats { gap: 12px; font-size: 14px; } .stats b { font-size: 20px; }
+}
 h1, h2, h3 { font-family: var(--serif); letter-spacing: -.015em; line-height: 1.15; }
 h1 { font-size: clamp(34px, 5.5vw, 58px); margin: 10px 0 12px; font-weight: 700; }
 h2 { font-size: 26px; margin: 0 0 14px; }
 h3 { font-size: 19px; margin: 0; }
 .lede { font-size: 19px; color: var(--ink-2); max-width: 40em; margin: 0 0 22px; }
-.hero { padding: 26px 0 30px; display: grid; grid-template-columns: 1.35fr 1fr; gap: 28px; align-items: start; }
-@media (max-width: 860px) { .hero { grid-template-columns: 1fr; } }
-.doors { display: grid; gap: 12px; }
+.hero { padding: 26px 0 30px; display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 28px; align-items: start; }
+@media (max-width: 860px) { .hero { grid-template-columns: minmax(0, 1fr); gap: 20px; padding-top: 14px; } }
+/* Grid tracks default to min-content width, so one long code line would widen the whole page on a phone. */
+.hero > *, .app-layout > *, .side > *, .doors > * { min-width: 0; }
+.doors { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
 .door { background: var(--card); border: 1.5px solid var(--line); border-radius: var(--r); padding: 16px 18px; box-shadow: 0 2px 0 var(--line); }
 .door h3 { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
 .door p { margin: 0 0 8px; color: var(--ink-2); font-size: 15px; }
-.door pre { margin: 8px 0 0; font-size: 13px; }
+.door pre { margin: 8px 0 0; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .stats { display: flex; gap: 18px; flex-wrap: wrap; color: var(--ink-2); font-size: 15px; }
 .stats b { font-family: var(--serif); font-size: 22px; color: var(--ink); }
 .searchbar { display: flex; gap: 8px; margin: 0 0 18px; flex-wrap: wrap; align-items: center; }
@@ -101,7 +116,7 @@ textarea { width: 100%; min-height: 84px; resize: vertical; }
 .folk { display: flex; flex-wrap: wrap; gap: 10px; }
 .folk a { display: inline-flex; gap: 6px; align-items: center; background: var(--card); border: 1.5px solid var(--line); padding: 6px 12px 6px 8px; border-radius: 999px; text-decoration: none; color: var(--ink); font-weight: 600; font-size: 14px; }
 .app-layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 24px; align-items: start; margin-bottom: 40px; }
-@media (max-width: 960px) { .app-layout { grid-template-columns: 1fr; } }
+@media (max-width: 960px) { .app-layout { grid-template-columns: minmax(0, 1fr); } }
 .stage { background: var(--ink); border-radius: 22px; padding: 10px; box-shadow: 0 10px 30px -14px #2b2140aa; }
 .stage-bar { display: flex; gap: 10px; align-items: center; color: var(--paper); padding: 2px 6px 10px; font-size: 13px; }
 .stage-bar .dots { display: flex; gap: 6px; }
@@ -109,7 +124,7 @@ textarea { width: 100%; min-height: 84px; resize: vertical; }
 .stage-bar .dots i:nth-child(2) { background: var(--gold); } .stage-bar .dots i:nth-child(3) { background: #59c08f; }
 .stage-bar a { color: var(--paper); margin-left: auto; }
 .stage iframe { display: block; width: 100%; height: min(78vh, 760px); border: 0; border-radius: 14px; background: #fff; }
-.side { display: grid; gap: 16px; }
+.side { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
 .panel { background: var(--card); border: 1.5px solid var(--line); border-radius: var(--r); padding: 16px 18px; }
 .panel h3 { margin-bottom: 8px; }
 .panel p { margin: 0 0 8px; }

@@ -32,5 +32,6 @@ jobs:
         env:
           CHARM_WRANGLER_CONFIG: wrangler.ci.toml
       - run: CHROME=/usr/bin/google-chrome node scripts/browser-check.mjs
+      - run: CHROME=/usr/bin/google-chrome node scripts/mobile-check.mjs
       - if: failure()
         run: cat wrangler.log

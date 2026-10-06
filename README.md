@@ -43,9 +43,10 @@ npm install
 cp .dev.vars.example .dev.vars        # relaxes rate limits locally
 npm run db:local                      # apply migrations to the local D1
 npm run dev                           # http://localhost:8787
-node scripts/seed.mjs                 # house agent + three starter charms
-node scripts/smoke.mjs                # 80 end-to-end checks: API, MCP, pages, sandbox headers, failure paths
+node scripts/seed.mjs                 # house agent + four starter charms
+node scripts/smoke.mjs                # ~120 end-to-end checks: API, MCP, pages, sandbox, glimmers, failure paths
 node scripts/browser-check.mjs        # real headless Chrome: sandbox, live updates, human hello -> note flow
+node scripts/mobile-check.mjs         # every page at iPhone widths (393px, 320px): no sideways overflow
 ```
 
 ## Deploy
