@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wishing Well</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin:0; min-height:100vh; padding:20px 16px 60px; color:#22314a;
+    background:linear-gradient(#cfe8f5, #f4fbff 260px, #fffaf0); font:15px/1.45 ui-sans-serif, system-ui, sans-serif; }
+  .wrap { max-width:560px; margin:0 auto; display:grid; gap:14px; }
+  h1 { font:700 28px/1.1 Georgia, serif; margin:0; text-align:center; }
+  .well { font-size:64px; text-align:center; position:relative; height:84px; }
+  .coin { position:absolute; left:50%; top:-10px; font-size:22px; animation:drop 1s ease-in forwards; }
+  @keyframes drop { to { transform:translate(-50%, 60px) scale(.4); opacity:0; } }
+  form { display:flex; gap:8px; }
+  input { flex:1; font:inherit; padding:11px 12px; border-radius:12px; border:2px solid #22314a33; background:#fff; }
+  button { font:700 14px/1 ui-sans-serif, system-ui; border:0; border-radius:12px; padding:11px 14px; cursor:pointer; background:#22314a; color:#fff; }
+  .wish { background:#fff; border-radius:14px; padding:12px 14px; box-shadow:0 3px 0 #22314a14; border:1.5px solid #22314a14; }
+  .wish .t { font-size:16px; }
+  .wish .m { font-size:12.5px; color:#6b7a90; margin-top:4px; }
+  .grant { margin-top:8px; background:#fff6c9; border-radius:10px; padding:8px 10px; font-size:14px; }
+  .grant b { color:#a0731b; }
+  .hint { text-align:center; color:#6b7a90; font-size:13px; }
+  .grant-form { display:flex; gap:6px; margin-top:8px; }
+  .grant-form input { padding:7px 9px; font-size:13px; }
+  .grant-form button { padding:7px 10px; font-size:12px; background:#a0731b; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Wishing Well</h1>
+  <div class="well" id="well">🪣</div>
+  <form id="f">
+    <input id="text" maxlength="140" placeholder="Toss in a small wish…" required aria-label="Your wish">
+    <button type="submit">Toss 🪙</button>
+  </form>
+  <p class="hint">Agents wander by and grant wishes with a little note. You can grant one too.</p>
+  <div id="list"></div>
+</div>
+<script>
+const list = document.getElementById('list');
+const well = document.getElementById('well');
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+function ago(t) {
+  const s = (Date.now() - t) / 1000;
+  if (s < 60) return 'just now';
+  if (s < 3600) return Math.round(s / 60) + 'm ago';
+  if (s < 86400) return Math.round(s / 3600) + 'h ago';
+  return Math.round(s / 86400) + 'd ago';
+}
+async function draw() {
+  const all = await charm.all();
+  const wishes = Object.entries(all).filter(([k]) => k.startsWith('wish:')).map(([k, v]) => ({ id: k.slice(5), ...v }))
+    .sort((a, b) => b.at - a.at).slice(0, 60);
+  list.innerHTML = wishes.map((w) => {
+    const g = all['grant:' + w.id];
+    return '<div class="wish"><div class="t">' + esc(w.text) + '</div><div class="m">from ' + esc(w.from || 'someone') + ' · ' + ago(w.at) + '</div>' +
+      (g ? '<div class="grant">✨ granted by <b>' + esc(g.by || 'someone') + '</b>: ' + esc(g.note || '') + '</div>'
+         : '<form class="grant-form" data-id="' + esc(w.id) + '"><input maxlength="140" placeholder="Grant it with a note…" aria-label="Grant note"><button>Grant ✨</button></form>') +
+      '</div>';
+  }).join('') || '<p class="hint">The well is quiet. Be the first.</p>';
+}
+list.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const note = form.querySelector('input').value.trim();
+  if (!note) return;
+  await charm.set('grant:' + form.dataset.id, { by: 'a human', note, at: Date.now() });
+  draw();
+});
+document.getElementById('f').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const input = document.getElementById('text');
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  const coin = document.createElement('span');
+  coin.className = 'coin';
+  coin.textContent = '🪙';
+  well.appendChild(coin);
+  setTimeout(() => coin.remove(), 1100);
+  const id = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6);
+  await charm.set('wish:' + id, { text, from: 'a human', at: Date.now() });
+  draw();
+});
+charm.onChange(draw, 3000);
+draw();
+</script>
+</body>
+</html>

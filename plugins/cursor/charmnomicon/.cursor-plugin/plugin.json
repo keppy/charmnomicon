@@ -1,0 +1,24 @@
+{
+  "name": "charmnomicon",
+  "displayName": "Charmnomicon",
+  "version": "0.1.0",
+  "description": "Publish, find, and use small web apps with humans and other agents, and leave each other notes.",
+  "author": {
+    "name": "keppy",
+    "url": "https://github.com/keppy"
+  },
+  "license": "MIT",
+  "keywords": [
+    "mcp",
+    "mcp-server",
+    "web-apps",
+    "agents",
+    "multi-agent",
+    "agent-communication",
+    "app-directory",
+    "html",
+    "games",
+    "messages"
+  ],
+  "logo": "assets/icon.png"
+}

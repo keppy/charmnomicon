@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tic-Tac-Toe Across the Veil</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin:0; min-height:100vh; display:grid; place-items:center; padding:16px;
+    background:radial-gradient(circle at 30% 20%, #3b2d5c, #1b1430); color:#f6efe1;
+    font:15px/1.4 ui-sans-serif, system-ui, sans-serif; }
+  .wrap { width:min(420px, 100%); display:grid; gap:14px; text-align:center; }
+  h1 { font:700 24px/1.15 Georgia, serif; margin:0; }
+  .sub { color:#cbbfe3; margin:0; }
+  .board { display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; aspect-ratio:1; }
+  .board button { font:700 54px/1 Georgia, serif; border:0; border-radius:16px; background:#f6efe1; color:#2b2140;
+    cursor:pointer; box-shadow:0 5px 0 #0006; transition:transform .1s; }
+  .board button:hover:enabled { transform:translateY(-2px); }
+  .board button:disabled { cursor:default; }
+  .board button.X { color:#d0623f; } .board button.O { color:#2f8f6b; }
+  .board button.win { background:#f2c94c; }
+  .row { display:flex; gap:8px; justify-content:center; flex-wrap:wrap; }
+  .row button { font:700 14px/1 ui-sans-serif, system-ui; border:0; border-radius:999px; padding:10px 14px; cursor:pointer;
+    background:#f6efe1; color:#2b2140; }
+  .row button[aria-pressed="true"] { background:#f2c94c; }
+  .status { min-height:1.5em; font-size:16px; }
+  .players { font-size:13px; color:#cbbfe3; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>✨ Tic-Tac-Toe Across the Veil</h1>
+  <p class="sub">A human on one side, an agent on the other. Or anybody. Moves are shared live.</p>
+  <div class="row" id="sides">
+    <button type="button" data-side="X">I play ✗</button>
+    <button type="button" data-side="O">I play ○</button>
+    <button type="button" id="reset">New game</button>
+  </div>
+  <div class="board" id="board"></div>
+  <div class="status" id="status">Summoning the board…</div>
+  <div class="players" id="players"></div>
+</div>
+<script>
+const LINES = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
+const fresh = () => ({ board: '         ', turn: 'X', winner: null, players: { X: '', O: '' }, moves: 0 });
+let game = fresh();
+let side = null;
+const boardEl = document.getElementById('board');
+const statusEl = document.getElementById('status');
+const playersEl = document.getElementById('players');
+const cells = [...Array(9)].map((_, i) => {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.setAttribute('aria-label', 'cell ' + (i + 1));
+  b.onclick = () => move(i);
+  boardEl.appendChild(b);
+  return b;
+});
+function winnerOf(board) {
+  for (const l of LINES) if (board[l[0]] !== ' ' && l.every((i) => board[i] === board[l[0]])) return { who: board[l[0]], line: l };
+  return board.includes(' ') ? null : { who: 'draw', line: [] };
+}
+function render() {
+  const w = winnerOf(game.board);
+  cells.forEach((b, i) => {
+    const v = game.board[i];
+    b.textContent = v === 'X' ? '✗' : v === 'O' ? '○' : '';
+    b.className = (v !== ' ' ? v : '') + (w && w.line.includes(i) ? ' win' : '');
+    b.disabled = !!w || v !== ' ' || !side || game.turn !== side;
+  });
+  document.querySelectorAll('[data-side]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.side === side)));
+  if (w) statusEl.textContent = w.who === 'draw' ? 'A draw. The veil holds.' : (w.who === 'X' ? '✗' : '○') + ' wins!';
+  else if (!side) statusEl.textContent = 'Pick a side. It is ' + (game.turn === 'X' ? '✗' : '○') + '\'s turn.';
+  else statusEl.textContent = game.turn === side ? 'Your turn.' : 'Waiting for ' + (game.turn === 'X' ? '✗' : '○') + '…';
+  const p = game.players || {};
+  playersEl.textContent = '✗ ' + (p.X || 'nobody yet') + '  ·  ○ ' + (p.O || 'nobody yet');
+}
+async function load() {
+  game = (await charm.get('game')) || fresh();
+  render();
+}
+async function move(i) {
+  const latest = (await charm.get('game')) || fresh();
+  if (latest.board[i] !== ' ' || latest.turn !== side || winnerOf(latest.board)) { game = latest; return render(); }
+  latest.board = latest.board.slice(0, i) + side + latest.board.slice(i + 1);
+  latest.turn = side === 'X' ? 'O' : 'X';
+  latest.moves = (latest.moves || 0) + 1;
+  const w = winnerOf(latest.board);
+  latest.winner = w ? w.who : null;
+  latest.players = latest.players || { X: '', O: '' };
+  if (!latest.players[side]) latest.players[side] = 'a human';
+  game = latest;
+  render();
+  await charm.set('game', latest);
+}
+document.querySelectorAll('[data-side]').forEach((b) => (b.onclick = () => { side = b.dataset.side; render(); }));
+document.getElementById('reset').onclick = async () => { game = fresh(); render(); await charm.set('game', game); };
+charm.onChange(load, 1500);
+load().catch((e) => { statusEl.textContent = e.message; });
+</script>
+</body>
+</html>

@@ -1,0 +1,26 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: node scripts/build-packages.mjs --check
+      - run: cp .dev.vars.example .dev.vars && npx wrangler d1 migrations apply charmnomicon --local
+      - name: start worker
+        run: |
+          npx wrangler dev --port 8787 > wrangler.log 2>&1 &
+          for i in $(seq 1 60); do curl -sf localhost:8787/api >/dev/null && exit 0; sleep 1; done
+          cat wrangler.log; exit 1
+      - run: node scripts/seed.mjs
+      - run: node scripts/smoke.mjs
+      - run: CHROME=/usr/bin/google-chrome node scripts/browser-check.mjs

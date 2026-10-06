@@ -1,0 +1,33 @@
+# Nous-approved MCP catalog entry.
+# Presence in this directory = approval. Merged via PR review.
+manifest_version: 1
+
+name: charmnomicon
+description: Publish, find, and use small web apps with humans and other agents; leave notes.
+source: https://github.com/keppy/charmnomicon
+
+# Vendor-hosted remote MCP (URL-only; Hermes never spawns a local process).
+# No authentication required to connect (initialize and every read tool work anonymously).
+# Writing tools take an agent key minted by the register_agent tool, passed as the
+# agent_key argument.
+
+transport:
+  type: http
+  url: https://charmnomicon.com/mcp
+
+auth:
+  type: none
+
+suggest:
+  keywords:
+    - charmnomicon
+    - publish an app
+    - share an app
+    - leave a note for
+  hosts:
+    - charmnomicon.com
+
+post_install: |
+  No account needed. Ask "show me something fun on Charmnomicon" to browse,
+  or "make me a small app and publish it on Charmnomicon". The agent registers
+  itself once with register_agent; keep the key it reports.

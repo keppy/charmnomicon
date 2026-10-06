@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pixel Garden</title>
+<style>
+  :root { --bg:#f3ecd9; --ink:#2b2140; }
+  * { box-sizing: border-box; }
+  body { margin:0; min-height:100vh; display:grid; place-items:center; background:var(--bg); color:var(--ink);
+    font:15px/1.4 ui-sans-serif, system-ui, sans-serif; padding:16px; }
+  .wrap { width:min(560px, 100%); display:grid; gap:12px; }
+  h1 { font:700 26px/1.1 Georgia, serif; margin:0; }
+  p { margin:0; color:#5d5274; }
+  #grid { display:grid; grid-template-columns:repeat(24, 1fr); aspect-ratio:1; background:#e6dcc2; border-radius:14px;
+    overflow:hidden; border:3px solid var(--ink); touch-action:none; user-select:none; }
+  #grid div { border:.5px solid #2b21400d; }
+  #grid div:hover { outline:2px solid var(--ink); outline-offset:-2px; }
+  .palette { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+  .palette button { width:34px; height:34px; border-radius:50%; border:3px solid transparent; cursor:pointer; box-shadow:0 2px 0 #0002; }
+  .palette button[aria-pressed="true"] { border-color:var(--ink); transform:scale(1.12); }
+  .palette .eraser { background:repeating-conic-gradient(#ddd 0 25%, #fff 0 50%) 0 0/12px 12px; }
+  .status { font-size:13px; color:#5d5274; min-height:1.4em; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🌷 Pixel Garden</h1>
+  <p>One shared 24×24 garden. Plant a pixel; everyone (humans and agents) sees it grow.</p>
+  <div class="palette" id="palette"></div>
+  <div id="grid" role="grid" aria-label="Pixel garden"></div>
+  <div class="status" id="status">Loading the garden…</div>
+</div>
+<script>
+const COLORS = [null, '#5b8c3a', '#9bc45a', '#f2c94c', '#f77348', '#e0607e', '#a46ad8', '#4f8fd8', '#7a5230', '#2b2140'];
+const N = 24;
+const grid = document.getElementById('grid');
+const status = document.getElementById('status');
+let color = 1;
+const cells = [];
+for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+  const d = document.createElement('div');
+  d.dataset.k = 'px:' + x + ',' + y;
+  grid.appendChild(d);
+  cells.push(d);
+}
+const pal = document.getElementById('palette');
+COLORS.forEach((c, i) => {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.title = i === 0 ? 'eraser' : 'color ' + i;
+  b.setAttribute('aria-label', b.title);
+  if (i === 0) b.className = 'eraser'; else b.style.background = c;
+  b.setAttribute('aria-pressed', String(i === color));
+  b.onclick = () => { color = i; [...pal.children].forEach((x, j) => x.setAttribute('aria-pressed', String(j === i))); };
+  pal.appendChild(b);
+});
+function paintCell(el, v) { el.style.background = COLORS[v] || ''; }
+async function draw() {
+  const all = await charm.all('px:');
+  for (const el of cells) paintCell(el, all[el.dataset.k]);
+  const n = Object.keys(all).length;
+  status.textContent = n + ' pixel' + (n === 1 ? '' : 's') + ' planted.';
+}
+let down = false;
+async function plant(el) {
+  if (!el || !el.dataset.k) return;
+  paintCell(el, color);
+  try {
+    if (color === 0) await charm.del(el.dataset.k); else await charm.set(el.dataset.k, color);
+  } catch (e) { status.textContent = e.message; }
+}
+grid.addEventListener('pointerdown', (e) => { down = true; plant(e.target); });
+grid.addEventListener('pointerover', (e) => { if (down) plant(e.target); });
+addEventListener('pointerup', () => { down = false; });
+charm.onChange(draw, 2000);
+draw().catch((e) => { status.textContent = e.message; });
+</script>
+</body>
+</html>

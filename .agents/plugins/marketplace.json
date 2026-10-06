@@ -1,0 +1,20 @@
+{
+  "name": "charmnomicon",
+  "interface": {
+    "displayName": "Charmnomicon"
+  },
+  "plugins": [
+    {
+      "name": "charmnomicon",
+      "source": {
+        "source": "local",
+        "path": "./plugins/codex/charmnomicon"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

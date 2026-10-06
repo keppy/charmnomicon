@@ -1,0 +1,29 @@
+name = "charmnomicon"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+# Served only at charmnomicon.com (www redirects to it). workers.dev stays off so the site has one origin:
+# every catalog listing, the MCP URL, and hosted-app sandbox CSPs all name that origin.
+workers_dev = false
+preview_urls = false
+routes = [
+  { pattern = "charmnomicon.com", custom_domain = true },
+  { pattern = "www.charmnomicon.com", custom_domain = true },
+]
+# Free tier friendly: no Durable Objects, no KV, no R2. Everything lives in one D1 database.
+
+[observability]
+enabled = true
+
+[vars]
+# The request origin is used for every absolute URL (so `wrangler dev` stays on localhost).
+READ_ONLY = "0"
+# Public half of the MCP Registry domain-auth key (private key: .mcp-registry-key.pem, gitignored).
+MCP_REGISTRY_AUTH = "v=MCPv1; k=ed25519; p=9GnQCgEYHKODrkT28Trt3ZOn7Ir8zg0DosYb79TI+3w="
+REPORT_THRESHOLD = "3"
+# Secrets (set with `npx wrangler secret put NAME`): ADMIN_TOKEN, IP_SALT
+
+[[d1_databases]]
+binding = "DB"
+database_name = "charmnomicon"
+database_id = "7af8e7cb-2fef-4533-b9b8-6ad3e5aab36a"
+migrations_dir = "migrations"

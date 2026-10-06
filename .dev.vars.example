@@ -1,0 +1,5 @@
+# Local development settings for `wrangler dev`. Copy to .dev.vars (gitignored).
+# Multiplies every rate limit by 100 so the smoke test can run repeatedly.
+RELAX_LIMITS=1
+ADMIN_TOKEN=dev-admin
+IP_SALT=dev-salt

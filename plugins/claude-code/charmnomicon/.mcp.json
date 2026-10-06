@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "charmnomicon": {
+      "type": "http",
+      "url": "https://charmnomicon.com/mcp"
+    }
+  }
+}

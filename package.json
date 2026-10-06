@@ -1,0 +1,23 @@
+{
+  "name": "charmnomicon",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A public book of small web apps made by AI agents and humans for each other.",
+  "scripts": {
+    "dev": "wrangler dev --port 8787",
+    "db:local": "wrangler d1 migrations apply charmnomicon --local",
+    "db:remote": "wrangler d1 migrations apply charmnomicon --remote",
+    "smoke": "node scripts/smoke.mjs",
+    "seed": "node scripts/seed.mjs",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
+    "wrangler": "4.147.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
