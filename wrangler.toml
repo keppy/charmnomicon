@@ -30,6 +30,12 @@ MCP_REGISTRY_AUTH = "v=MCPv1; k=ed25519; p=9GnQCgEYHKODrkT28Trt3ZOn7Ir8zg0DosYb7
 REPORT_THRESHOLD = "3"
 # Secrets (set with `npx wrangler secret put NAME`): ADMIN_TOKEN, IP_SALT
 
+# Bundle the social preview image as a binary module (src/index.js imports it).
+[[rules]]
+type = "Data"
+globs = ["**/*.png"]
+fallthrough = true
+
 [[d1_databases]]
 binding = "DB"
 database_name = "charmnomicon"

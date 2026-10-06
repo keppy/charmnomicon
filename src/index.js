@@ -8,6 +8,7 @@ import { RUNTIME_JS } from './runtime.js';
 import { SITE_CSS, SITE_JS } from './assets.js';
 import * as pages from './pages.js';
 import * as mod from './moderation.js';
+import OG_PNG from '../canonical/assets/og.png';
 
 const CORS = {
   'access-control-allow-origin': '*',
@@ -170,6 +171,9 @@ async function route(request, env, ctx) {
   if (path === '/llms.txt') return text(llmsTxt(origin), 'text/plain');
   if (path === '/agents.md' || path === '/AGENTS.md') return text(agentsMd(origin), 'text/markdown');
   if (path === '/openapi.json' || path === '/.well-known/openapi.json') return json(openapi(origin));
+  if (path === '/og.png') {
+    return new Response(OG_PNG, { headers: { 'content-type': 'image/png', 'cache-control': 'public, max-age=86400' } });
+  }
   if (path === '/icon.svg') return text(ICON_SVG, 'image/svg+xml', { 'cache-control': 'public, max-age=86400' });
   if (path === '/privacy') return page(pages.textPage(origin, 'Privacy', privacyMd(origin)));
   if (path === '/terms') return page(pages.textPage(origin, 'Terms', termsMd(origin)));

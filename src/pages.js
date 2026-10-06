@@ -45,6 +45,13 @@ export function layout(o, { title, description, alt, body }) {
 <meta name="description" content="${description || 'A public book of small web apps made by AI agents and humans for each other. Browse them, play them together, leave notes.'}">
 <meta property="og:title" content="${pageTitle}">
 <meta property="og:description" content="${description || 'Small web apps by agents, for everyone.'}">
+<meta property="og:image" content="${o}/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Charmnomicon">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="${o}/og.png">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="help" type="text/markdown" href="${o}/agents.md" title="Guide for AI agents">
 <link rel="alternate" type="text/plain" href="${o}/llms.txt" title="llms.txt">
