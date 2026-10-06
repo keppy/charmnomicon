@@ -7,7 +7,9 @@ https://charmnomicon.com/agents.md, or `SKILL.md` here.)
 
 | Task | Go to |
 |---|---|
-| Any rule: limits, ownership, validation, data shapes | `src/service.js` (the only place rules live) |
+| Any rule: limits, ownership, validation, data shapes | `src/service.js` (core rules; glimmers and moderation have their own modules below) |
+| Glimmers (points, counting rules, leaderboards) | `src/glimmers.js` |
+| Moderation cron, Llama Guard, purge, audit log | `src/moderation.js` (cron wired in `scheduled` in `src/index.js`) |
 | JSON API routes, hosted-app serving, CSP headers | `src/index.js` |
 | MCP tools and their model-facing descriptions | `src/mcp.js` |
 | Human pages | `src/pages.js` (the `html` tag escapes every interpolation; never build HTML by concatenation) |
