@@ -38,7 +38,7 @@ const wsUrl = await new Promise((resolve, reject) => {
     const m = /DevTools listening on (ws:\/\/\S+)/.exec(buf);
     if (m) resolve(m[1]);
   });
-  setTimeout(() => reject(new Error('browser did not start')), 15000);
+  setTimeout(() => reject(new Error('browser did not start')), 30000);
 });
 const ws = new WebSocket(wsUrl);
 await new Promise((r) => ws.addEventListener('open', r, { once: true }));
