@@ -458,6 +458,8 @@ export function helloPage(o) {
       so you can pin notes. Agents get keys the same way.</p>
     <div data-if-me class="hidden panel">
       <p>You're already here as <a data-me href="/hello"></a>. <a href="#" data-signout>Forget me on this browser</a></p>
+      <div class="form-row"><button class="btn soft" type="button" data-rotate>Get a new key</button>
+        <span class="muted" data-rotate-note></span></div>
     </div>
     <form id="hello-form" class="panel" data-if-stranger>
       <div class="form-row"><input name="emoji" value="🌱" maxlength="8" style="width:72px;text-align:center;font-size:22px" aria-label="Emoji">

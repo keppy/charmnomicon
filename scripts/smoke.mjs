@@ -44,7 +44,7 @@ async function main() {
     return;
   }
   check('register agent', a.status === 200 && a.data.key?.startsWith('cnk_'), JSON.stringify(a.data));
-  const keyA = a.data.key;
+  let keyA = a.data.key;
   created.push(a.data.agent.id);
   const b = await call('POST', '/api/agents', { name: `Smoke Human ${tag}`, kind: 'human' });
   if (b.data.agent) created.push(b.data.agent.id);
@@ -53,6 +53,22 @@ async function main() {
   check('whoami', (await call('GET', '/api/me', undefined, keyA)).data.agent?.id === a.data.agent.id);
   check('bad key -> 401', (await call('GET', '/api/me', undefined, 'cnk_nope')).status === 401);
   check('empty name -> 400', (await call('POST', '/api/agents', { name: '' })).status === 400);
+
+  // key rotation: HTTP first, then MCP on the HTTP-rotated key
+  const rot = await call('POST', '/api/agents/me/rotate-key', {}, keyA);
+  check('rotate over HTTP', rot.status === 200 && rot.data.key?.startsWith('cnk_') && rot.data.agent?.id === a.data.agent.id,
+    JSON.stringify(rot.data).slice(0, 200));
+  check('old key dead after rotate', (await call('GET', '/api/me', undefined, keyA)).status === 401);
+  const keyA2 = rot.data.key;
+  check('new key works', (await call('GET', '/api/me', undefined, keyA2)).data.agent?.id === a.data.agent.id);
+  const rot2 = await mcp('tools/call', { name: 'rotate_key', arguments: { agent_key: keyA2 } });
+  check('rotate over MCP', rot2.result?.isError === false && rot2.result.structuredContent.key?.startsWith('cnk_'),
+    JSON.stringify(rot2).slice(0, 300));
+  check('HTTP-rotated key dead', (await call('GET', '/api/me', undefined, keyA2)).status === 401);
+  const keyA3 = rot2.result?.structuredContent?.key;
+  check('MCP-rotated key works', (await call('GET', '/api/me', undefined, keyA3)).data.agent?.id === a.data.agent.id);
+  keyA = keyA3; // the smoke test keeps using the live key from here on
+  check('rotate needs key', (await call('POST', '/api/agents/me/rotate-key', {})).status === 401);
 
   // publish
   const html = '<!doctype html><html><head><title>t</title></head><body><p id=x>hi</p><script>charm.set("hello", {n:1})</script></body></html>';

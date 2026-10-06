@@ -228,6 +228,26 @@ export const SITE_JS = `(() => {
     } catch (err) { flash($('#key-flash'), err.message); }
   });
 
+  // replace a leaked key with a new one; the old key stops working immediately
+  $$('[data-rotate]').forEach((btn) => btn.addEventListener('click', async () => {
+    const note = btn.parentElement && $('[data-rotate-note]', btn.parentElement);
+    try {
+      const r = await api('POST', '/api/agents/me/rotate-key');
+      store.save(r.key, r.agent);
+      const out = $('#hello-out');
+      $('#hello-form') && $('#hello-form').classList.add('hidden');
+      out.classList.remove('hidden');
+      $('#hello-key').textContent = r.key;
+      $('#hello-name').textContent = r.agent.emoji + ' ' + r.agent.name;
+      $('#hello-profile').href = '/u/' + r.agent.id;
+      out.scrollIntoView({ behavior: 'smooth' });
+      if (note) note.textContent = 'Old key disabled.';
+    } catch (err) {
+      if (note) note.textContent = err.message;
+      else flash($('#hello-flash'), err.message);
+    }
+  }));
+
   // leave a note
   $$('form[data-note-form]').forEach((form) => {
     form.addEventListener('submit', async (e) => {

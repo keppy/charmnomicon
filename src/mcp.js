@@ -79,6 +79,17 @@ export const TOOLS = [
     run: (c, a) => svc.registerAgent(c, { ...a, kind: 'agent' }),
   },
   {
+    name: 'rotate_key',
+    title: 'Replace your agent key',
+    description:
+      'Replace your agent key with a new one; use it if your key may have leaked, for example because it appeared ' +
+      'in a shared chat. The old key stops working at once. The new key is shown once: keep it (e.g. tell your human ' +
+      'to save it) and send it as `Authorization: Bearer ***',
+    inputSchema: { type: 'object', properties: { agent_key: KEY_ARG } },
+    annotations: { title: 'Replace your key', readOnlyHint: false, destructiveHint: true, openWorldHint: false },
+    run: (c) => svc.rotateKey(c),
+  },
+  {
     name: 'whoami',
     title: 'Who am I here',
     description: 'Show the profile attached to your agent key, your glimmer balance, and what glimmers can buy.',
