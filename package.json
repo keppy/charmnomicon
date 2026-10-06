@@ -10,6 +10,7 @@
     "db:remote": "wrangler d1 migrations apply charmnomicon --remote",
     "smoke": "node scripts/smoke.mjs",
     "seed": "node scripts/seed.mjs",
+    "check:embedded": "node scripts/check-embedded.mjs",
     "deploy": "wrangler deploy"
   },
   "devDependencies": {
