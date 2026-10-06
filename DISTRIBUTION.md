@@ -19,18 +19,18 @@ Production: https://charmnomicon.com (MCP at https://charmnomicon.com/mcp).
 
 | Channel | Artifact | How it gets listed | Status |
 |---|---|---|---|
-| Official MCP Registry (feeds VS Code, GitHub's MCP registry, PulseMCP and other aggregators) | `server.json` | domain auth: `/.well-known/mcp-registry-auth` (public key in `wrangler.toml`), then `mcp-publisher login http --domain charmnomicon.com --private-key <hex from .mcp-registry-key.pem>` and `mcp-publisher publish` | not yet |
-| Claude Code | `.claude-plugin/marketplace.json`, `plugins/claude-code/` | users run `/plugin marketplace add keppy/charmnomicon`; validated with `claude plugin validate` | not yet |
-| Codex | `.agents/plugins/marketplace.json`, `plugins/codex/` | `codex plugin marketplace add https://github.com/keppy/charmnomicon.git` | not yet |
-| Cursor | `.cursor-plugin/marketplace.json`, `plugins/cursor/`, `.cursor/rules/charmnomicon.mdc` | plugin marketplace from the repo; submit to cursor.directory | not yet |
-| Gemini CLI | `gemini-extension.json`, `GEMINI.md` | `gemini extensions install https://github.com/keppy/charmnomicon`; tag the repo `gemini-cli-extension` for the gallery | not yet |
+| Official MCP Registry (feeds VS Code, GitHub's MCP registry, PulseMCP and other aggregators) | `server.json` | domain auth: `/.well-known/mcp-registry-auth` (public key in `wrangler.toml`), then `mcp-publisher login http --domain charmnomicon.com --private-key <hex from .mcp-registry-key.pem>` and `mcp-publisher publish` | **live** as `com.charmnomicon/charmnomicon` v0.1.0 (domain-verified) |
+| Claude Code | `.claude-plugin/marketplace.json`, `plugins/claude-code/` | users run `/plugin marketplace add keppy/charmnomicon`; validated with `claude plugin validate` | **works**: fresh marketplace add + install connects to the live MCP |
+| Codex | `.agents/plugins/marketplace.json`, `plugins/codex/` | `codex plugin marketplace add https://github.com/keppy/charmnomicon.git` | installable from the public repo (not hand-tested in Codex) |
+| Cursor | `.cursor-plugin/marketplace.json`, `plugins/cursor/`, `.cursor/rules/charmnomicon.mdc` | plugin marketplace from the repo; submit to cursor.directory | repo installable; directory submission pending (needs your login) |
+| Gemini CLI | `gemini-extension.json`, `GEMINI.md` | `gemini extensions install https://github.com/keppy/charmnomicon`; tag the repo `gemini-cli-extension` for the gallery | topic set; not hand-tested in Gemini CLI |
 | Agent Plugins v1.0.0 (ChatGPT, Copilot, Kiro, VS Code) | `plugins/agent-plugins/` | portable package, schema-validated at build | not yet |
-| skills.sh / any skills-aware agent | `SKILL.md` | `npx skills add keppy/charmnomicon` | not yet |
-| Hermes Agent | `catalog/hermes/optional-mcps/charmnomicon/manifest.yaml` | PR into `NousResearch/hermes-agent` `optional-mcps/` (Nous review) | not yet |
-| Glama | `glama.json` | claim the server on glama.ai | not yet |
-| Cline MCP marketplace | `llms-install.md` | issue on `cline/mcp-marketplace` | not yet |
-| Smithery, mcp.so | none | submit the MCP URL on each site | not yet |
-| The site itself | `/llms.txt`, `/agents.md`, `/openapi.json`, `/.well-known/mcp.json` | served by the Worker | live once deployed |
+| skills.sh / any skills-aware agent | `SKILL.md` | `npx skills add keppy/charmnomicon` | installable from the public repo |
+| Hermes Agent | `catalog/hermes/optional-mcps/charmnomicon/manifest.yaml` | PR into `NousResearch/hermes-agent` `optional-mcps/` (Nous review) | branch `keppy:optional-mcps/charmnomicon` pushed; PR held for maintainer hand-check |
+| Glama | `glama.json` | claim the server on glama.ai | pending (needs your login) |
+| Cline MCP marketplace | `llms-install.md` | issue on `cline/mcp-marketplace` (needs `canonical/assets/logo-400.png`) | pending: their form requires a real Cline install test first |
+| Smithery, mcp.so | none | submit the MCP URL on each site | pending (needs your login); PulseMCP ingests the official registry |
+| The site itself | `/llms.txt`, `/agents.md`, `/openapi.json`, `/.well-known/mcp.json` | served by the Worker | **live** |
 
 ## Release checklist
 
