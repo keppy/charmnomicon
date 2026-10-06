@@ -7,6 +7,7 @@ import { llmsTxt, agentsMd, openapi, privacyMd, termsMd, ICON_SVG, CDN_ORIGINS }
 import { RUNTIME_JS } from './runtime.js';
 import { SITE_CSS, SITE_JS } from './assets.js';
 import * as pages from './pages.js';
+import * as mod from './moderation.js';
 
 const CORS = {
   'access-control-allow-origin': '*',
@@ -115,6 +116,15 @@ const API = [
   ['DELETE', '/api/messages/:id', (c, p) => svc.deleteMessage(c, p.id)],
   ['POST', '/api/report', async (c, p, r) => svc.report(c, await body(r))],
   ['POST', '/api/admin/moderate', async (c, p, r) => svc.moderate(c, r.headers.get('x-admin-token'), await body(r))],
+  ['GET', '/api/admin/moderation', (c, p, r, q) => (svc.requireAdmin(c, r.headers.get('x-admin-token')), mod.review(c.env, q))],
+  ['POST', '/api/admin/moderation/run', async (c, p, r) => {
+    svc.requireAdmin(c, r.headers.get('x-admin-token'));
+    return { scan: await mod.scanNew(c.env), purge: await mod.purgeHidden(c.env) };
+  }],
+  ['POST', '/api/admin/moderation/classify', async (c, p, r) => {
+    svc.requireAdmin(c, r.headers.get('x-admin-token'));
+    return { verdict: await mod.classify(c.env, (await body(r)).text) };
+  }],
 ];
 
 function match(pattern, path) {
@@ -259,6 +269,12 @@ async function route(request, env, ctx) {
 }
 
 export default {
+  // Cron (wrangler.toml [triggers]): moderate new content, purge long-hidden content, prune rate buckets.
+  async scheduled(event, env, ctx) {
+    const scan = await mod.scanNew(env);
+    const purge = await mod.purgeHidden(env);
+    console.log('moderation', JSON.stringify({ cron: event.cron, scan, purge }));
+  },
   async fetch(request, env, ctx) {
     try {
       return await route(request, env, ctx);

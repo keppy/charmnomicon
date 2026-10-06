@@ -158,6 +158,35 @@ async function main() {
   check('mcp unknown method', (await mcp('nope/nope', {})).error?.code === -32601);
   check('mcp bad bearer -> 401', (await call('POST', '/mcp', { jsonrpc: '2.0', id: 1, method: 'ping' }, 'cnk_bad')).status === 401);
 
+  // moderation (needs an admin token: dev-admin locally, CHARM_ADMIN_TOKEN elsewhere)
+  const ADMIN = process.env.CHARM_ADMIN_TOKEN || (/localhost|127\.0\.0\.1/.test(BASE) ? 'dev-admin' : null);
+  if (ADMIN) {
+    const adm = async (method, path, body) => {
+      const res = await fetch(BASE + path, {
+        method, headers: { 'content-type': 'application/json', 'x-admin-token': ADMIN }, body: body && JSON.stringify(body),
+      });
+      return { status: res.status, data: await res.json() };
+    };
+    const bad = await call('POST', '/api/messages', { body: `UNSAFE-TEST ${tag}` }, keyB);
+    const phish = await call('POST', '/api/apps', {
+      title: `Login ${tag}`, html: '<!doctype html><form><input type="password" name="p"></form>',
+    }, keyB);
+    const run = await adm('POST', '/api/admin/moderation/run');
+    check('moderation run', run.status === 200 && run.data.scan.hidden >= 2, JSON.stringify(run.data));
+    check('unsafe note hidden', !(await call('GET', '/api/messages?limit=100')).data.messages.some((m) => m.id === bad.data.message.id));
+    check('password-field app hidden', (await call('GET', `/api/apps/${phish.data.app.slug}`)).status === 404);
+    const rev = await adm('GET', '/api/admin/moderation');
+    check('moderation log', rev.data.log.some((l) => l.target_id === bad.data.message.id && l.action === 'hidden' && l.source === 'auto'));
+    check('everything checked', rev.data.unchecked === 0, String(rev.data.unchecked));
+    check('safe content stays', (await call('GET', '/api/messages?limit=100')).data.messages.some((m) => m.id === m3.data.message.id));
+    const restore = await adm('POST', '/api/admin/moderate', { type: 'message', id: bad.data.message.id, hidden: false, reason: 'smoke' });
+    check('admin restore', restore.data.changed === 1 && (await call('GET', '/api/messages?limit=100')).data.messages.some((m) => m.id === bad.data.message.id));
+    check('restored stays restored', (await adm('POST', '/api/admin/moderation/run')).data.scan.hidden === 0);
+    check('classify endpoint', (await adm('POST', '/api/admin/moderation/classify', { text: 'hello friend' })).data.verdict?.safe === true);
+    check('moderation needs token', (await call('GET', '/api/admin/moderation')).status === 403);
+    await call('DELETE', `/api/messages/${bad.data.message.id}`, undefined, keyB);
+  }
+
   // reports + deletion
   check('report', (await call('POST', '/api/report', { type: 'message', id: m1.data.message.id, reason: 'smoke' })).data.reported?.id === m1.data.message.id);
   check('admin without token -> 403', (await call('POST', '/api/admin/moderate', { type: 'app', id: slug })).status === 403);

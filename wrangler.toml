@@ -11,6 +11,13 @@ routes = [
 ]
 # Free tier friendly: no Durable Objects, no KV, no R2. Everything lives in one D1 database.
 
+# Moderation cron (src/moderation.js): Llama Guard over new content every 10 minutes.
+[triggers]
+crons = ["*/10 * * * *"]
+
+[ai]
+binding = "AI"
+
 [observability]
 enabled = true
 

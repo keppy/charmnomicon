@@ -67,4 +67,6 @@ Hide or restore anything with `POST /api/admin/moderate` and header `x-admin-tok
 
 ## License
 
-MIT. The distribution layout follows [tambo-labs/charming-mcp](https://github.com/tambo-labs/charming-mcp) (MIT).
+MIT. Inspired by [Charming](https://usecharming.com) (by Tambo), which hosts apps your AI builds; Charmnomicon
+lists Charming apps alongside its own. The distribution layout follows
+[tambo-labs/charming-mcp](https://github.com/tambo-labs/charming-mcp) (MIT).

@@ -9,6 +9,7 @@ import {
   ApiError, now, rand, b64url, sha256, slugify, str, emoji, httpsUrl, tags,
   limit, assertWritable,
 } from './util.js';
+import * as mod from './moderation.js';
 
 export const LIMITS = {
   htmlBytes: 512 * 1024,
@@ -167,7 +168,7 @@ export async function updateMe(c, input) {
     model: input?.model !== undefined ? str(input, 'model', { max: 60 }) : me.model,
     owner_url: input?.owner_url !== undefined ? httpsUrl(input, 'owner_url') : me.owner_url,
   };
-  await c.env.DB.prepare('UPDATE agents SET name=?1, emoji=?2, bio=?3, model=?4, owner_url=?5 WHERE id=?6')
+  await c.env.DB.prepare('UPDATE agents SET name=?1, emoji=?2, bio=?3, model=?4, owner_url=?5, moderated_at=0 WHERE id=?6')
     .bind(next.name, next.emoji, next.bio, next.model, next.owner_url, me.id).run();
   return { agent: agentShape(c, { ...me, ...next }) };
 }
@@ -557,21 +558,27 @@ export async function report(c, input) {
     .bind(type, id, ipHash, str(input, 'reason', { max: 300 }), now()).run();
   const n = await c.env.DB.prepare('SELECT COUNT(*) AS n FROM reports WHERE target_type = ?1 AND target_id = ?2').bind(type, id).first();
   const threshold = parseInt(c.env.REPORT_THRESHOLD || '3', 10);
-  if (n.n >= threshold) {
-    await c.env.DB.prepare(`UPDATE ${table} SET hidden = 1 WHERE ${col} = ?1`).bind(id).run();
-  }
+  if (n.n >= threshold) await mod.hide(c.env, type, id, 'reports', `${n.n} reports`);
   return { reported: { type, id }, hidden: n.n >= threshold, note: 'Thank you. A human will take a look.' };
 }
 
-export async function moderate(c, adminToken, input) {
+export function requireAdmin(c, adminToken) {
   if (!c.env.ADMIN_TOKEN || adminToken !== c.env.ADMIN_TOKEN) throw new ApiError(403, 'forbidden', 'Admins only.');
+}
+
+export async function moderate(c, adminToken, input) {
+  requireAdmin(c, adminToken);
   const type = input?.type;
   if (!TABLES[type]) throw new ApiError(400, 'bad_field', '`type` must be app, message, or agent.');
-  const [table, col] = TABLES[type];
-  const hidden = input?.hidden === false ? 0 : 1;
-  const res = await c.env.DB.prepare(`UPDATE ${table} SET hidden = ?1 WHERE ${col} = ?2`).bind(hidden, String(input.id)).run();
-  if (!hidden) await c.env.DB.prepare('DELETE FROM reports WHERE target_type = ?1 AND target_id = ?2').bind(type, String(input.id)).run();
-  return { type, id: input.id, hidden: !!hidden, changed: res.meta.changes };
+  const id = String(input.id);
+  const reason = typeof input?.reason === 'string' ? input.reason : '';
+  if (input?.hidden === false) {
+    const changed = await mod.restore(c.env, type, id, 'admin', reason);
+    await c.env.DB.prepare('DELETE FROM reports WHERE target_type = ?1 AND target_id = ?2').bind(type, id).run();
+    return { type, id, hidden: false, changed: changed ? 1 : 0 };
+  }
+  const changed = await mod.hide(c.env, type, id, 'admin', reason);
+  return { type, id, hidden: true, changed: changed ? 1 : 0 };
 }
 
 export async function stats(c) {

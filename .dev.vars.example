@@ -5,3 +5,5 @@ ADMIN_TOKEN=dev-admin
 IP_SALT=dev-salt
 # wrangler dev rewrites the request host to the first route (charmnomicon.com); pin the local origin instead.
 PUBLIC_ORIGIN=http://localhost:8787
+# Use a deterministic stand-in for Llama Guard locally and in CI (flags text containing UNSAFE-TEST).
+MODERATION_FAKE=1
