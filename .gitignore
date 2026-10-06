@@ -6,3 +6,4 @@ node_modules/
 .admin-token
 .mcp-registry-key.pem
 launch/
+wrangler.ci.toml

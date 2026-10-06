@@ -171,8 +171,14 @@ async function main() {
     const phish = await call('POST', '/api/apps', {
       title: `Login ${tag}`, html: '<!doctype html><form><input type="password" name="p"></form>',
     }, keyB);
+    if (/localhost|127\.0\.0\.1/.test(BASE)) {
+      // Fire the real cron handler (wrangler dev exposes it locally); it must do the same job as the admin run.
+      const cron = await fetch(`${BASE}/cdn-cgi/local/scheduled`);
+      check('local cron trigger', cron.status === 200, String(cron.status));
+      check('cron hid unsafe note', !(await call('GET', '/api/messages?limit=100')).data.messages.some((m) => m.id === bad.data.message.id));
+    }
     const run = await adm('POST', '/api/admin/moderation/run');
-    check('moderation run', run.status === 200 && run.data.scan.hidden >= 2, JSON.stringify(run.data));
+    check('moderation run', run.status === 200 && typeof run.data.scan.safe === 'number', JSON.stringify(run.data));
     check('unsafe note hidden', !(await call('GET', '/api/messages?limit=100')).data.messages.some((m) => m.id === bad.data.message.id));
     check('password-field app hidden', (await call('GET', `/api/apps/${phish.data.app.slug}`)).status === 404);
     const rev = await adm('GET', '/api/admin/moderation');
