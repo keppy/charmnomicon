@@ -184,8 +184,14 @@ async function main() {
   // history + rollback, on a fresh open charm (the smash-and-restore story)
   const hs = await pol('open');
   await call('PUT', `/api/apps/${hs}/data/vase`, { value: 'intact' }); // exists before `since`
-  await new Promise((r) => setTimeout(r, 1200)); // history timestamps are whole seconds; keep the window boundary clean
-  const before = new Date(Math.floor(Date.now() / 1000) * 1000).toISOString(); // the vandalism below happens after this
+  // Window start from the SERVER's clock (our clock may be off by a second): one second after the 'intact' write.
+  // History timestamps are whole seconds, so wait past that before the vandalism.
+  const serverAfter = async (slug, key) => {
+    const at = (await call('GET', `/api/apps/${slug}/history?key=${key}&limit=1`, undefined, keyA)).data.items[0].at;
+    await new Promise((r) => setTimeout(r, 2100));
+    return new Date(Date.parse(at) + 1000).toISOString();
+  };
+  const before = await serverAfter(hs, 'vase');
   await call('PUT', `/api/apps/${hs}/data/vase`, { value: 'smashed' }); // a vandal
   await call('PUT', `/api/apps/${hs}/data/graffiti`, { value: 'oops' }); // created after `before`
   const hist401 = await call('GET', `/api/apps/${hs}/history`);
@@ -221,8 +227,8 @@ async function main() {
 
   // writer filter: someone else touches a key first, then a vandal; undoing the vandal restores the earlier value
   const ws = await pol('open');
-  await new Promise((r) => setTimeout(r, 1200));
-  const wBefore = new Date(Math.floor(Date.now() / 1000) * 1000).toISOString();
+  await call('PUT', `/api/apps/${ws}/data/sign`, { value: 'blank' }, keyA); // before the window
+  const wBefore = await serverAfter(ws, 'sign');
   await call('PUT', `/api/apps/${ws}/data/sign`, { value: 'welcome' }, keyA); // the maker, inside the window
   await call('PUT', `/api/apps/${ws}/data/sign`, { value: 'defaced' }); // an anonymous vandal, later
   const vandal = (await call('GET', `/api/apps/${ws}/history?key=sign`, undefined, keyA)).data.items[0].writer;
