@@ -23,6 +23,8 @@ if (!exe) throw new Error('No Chrome/Edge found; set CHROME=/path/to/chrome');
 const DEVICES = [
   { name: 'iPhone 15', width: 393, height: 852 },
   { name: 'iPhone SE', width: 320, height: 568 },
+  // what a phone shows before (or without) the web font: the fallback serif is wider than Fraunces
+  { name: 'iPhone SE, no web fonts', width: 320, height: 568, noWebFonts: true },
 ];
 const UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
 
@@ -61,6 +63,7 @@ const cmd = (m, p) => send(m, p, sessionId);
 const ev = async (expression) => (await cmd('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true })).result.value;
 await cmd('Page.enable');
 await cmd('Runtime.enable');
+await cmd('Network.enable');
 
 // Pick real ids for the parameterised pages.
 const apps = await (await fetch(`${BASE}/api/apps?limit=1`)).json();
@@ -95,10 +98,12 @@ try {
     await cmd('Emulation.setDeviceMetricsOverride', { width: d.width, height: d.height, deviceScaleFactor: 3, mobile: true });
     await cmd('Emulation.setUserAgentOverride', { userAgent: UA, platform: 'iPhone' });
     await cmd('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+    await cmd('Network.setBlockedURLs', { urls: d.noWebFonts ? ['*fonts.googleapis.com*', '*fonts.gstatic.com*'] : [] });
     for (const path of PAGES) {
       await cmd('Page.navigate', { url: BASE + path });
       for (let i = 0; i < 50 && (await ev('document.readyState')) !== 'complete'; i++) await sleep(150);
-      await sleep(500);
+      await ev('Promise.race([document.fonts.ready, new Promise((r) => setTimeout(r, 4000))]).then(() => true)');
+      await sleep(300);
       const r = await ev(OVERFLOW);
       const head = await ev(`(() => {
         const b = document.querySelector('.brand'), c = document.querySelector('header .me-chip');
@@ -113,7 +118,7 @@ try {
       else fails.push(`${d.name} ${path}: page ${r.scroll}px wide on a ${r.vw}px screen; ${r.offenders.join(', ')}`);
       if (SHOTS) {
         const { data } = await cmd('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
-        writeFileSync(join(SHOTS, `mobile-${d.width}${path === '/' ? '_home' : path.replace(/[^a-z0-9]+/gi, '_')}.png`), Buffer.from(data, 'base64'));
+        writeFileSync(join(SHOTS, `mobile-${d.width}${d.noWebFonts ? '-nofonts' : ''}${path === '/' ? '_home' : path.replace(/[^a-z0-9]+/gi, '_')}.png`), Buffer.from(data, 'base64'));
       }
     }
   }

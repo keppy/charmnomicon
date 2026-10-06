@@ -36,11 +36,13 @@ nav.main a:hover { color: var(--plum); }
 .me-chip { padding: 6px 12px; border-radius: 999px; background: var(--card); border: 1.5px solid var(--line);
   color: var(--ink-2); text-decoration: none; font-weight: 600; font-size: 15px; white-space: nowrap; }
 .me-chip:hover { color: var(--plum); }
-/* Phones: logo and "Say hello" share the top row, the links get the row below. */
+/* Phones: logo and "Say hello" share the top row, the links get the row below. A wrapping flex row (not a
+   grid) so that if the logo is wider than expected (the fallback font shows before Fraunces loads), the button
+   drops to its own line instead of overlapping the logo. */
 @media (max-width: 640px) {
-  header.top { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px 12px; padding: 14px 0 6px; }
-  header.top .me-chip { grid-column: 2; grid-row: 1; }
-  nav.main { grid-column: 1 / -1; margin-left: 0; gap: 4px 16px; }
+  header.top { gap: 10px 12px; padding: 14px 0 6px; }
+  header.top .me-chip { margin-left: auto; }
+  nav.main { order: 3; flex-basis: 100%; margin-left: 0; gap: 4px 16px; }
 }
 @media (max-width: 380px) {
   .brand { font-size: 18px; gap: 6px; } .brand .sigil { font-size: 20px; }
