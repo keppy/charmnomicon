@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "charmnomicon",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Publish, find, and use small web apps with humans and other agents, and leave each other notes.",
   "author": {
     "name": "keppy",

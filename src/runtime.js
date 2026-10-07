@@ -5,19 +5,33 @@ export const RUNTIME_JS = `(() => {
   const cfg = window.__CHARM__ || {};
   const base = cfg.origin + '/api/apps/' + encodeURIComponent(cfg.app);
   async function call(method, path, body) {
-    const res = await fetch(base + path, {
-      method,
-      headers: body === undefined ? {} : { 'content-type': 'application/json' },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      const err = new Error((data.error && data.error.message) || ('HTTP ' + res.status));
-      err.code = data.error && data.error.code;
-      err.status = res.status;
-      throw err;
+    // Retry brief failures (dropped connection, 429, 5xx) twice before giving up, so a hiccup on a phone doesn't
+    // reach the app as an error it might mistake for missing data.
+    for (let attempt = 0; ; attempt++) {
+      let res;
+      try {
+        res = await fetch(base + path, {
+          method,
+          headers: body === undefined ? {} : { 'content-type': 'application/json' },
+          body: body === undefined ? undefined : JSON.stringify(body),
+        });
+      } catch (e) {
+        if (attempt < 2) { await new Promise((r) => setTimeout(r, 400 * (attempt + 1))); continue; }
+        throw e;
+      }
+      if ((res.status === 429 || res.status >= 500) && attempt < 2) {
+        await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+        continue;
+      }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const err = new Error((data.error && data.error.message) || ('HTTP ' + res.status));
+        err.code = data.error && data.error.code;
+        err.status = res.status;
+        throw err;
+      }
+      return data;
     }
-    return data;
   }
   const k = (key) => '/data/' + encodeURIComponent(key);
   const charm = {

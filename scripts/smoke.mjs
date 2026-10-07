@@ -514,22 +514,28 @@ async function main() {
   check('delete remix', (await call('DELETE', `/api/apps/${rx.data.app.slug}`, undefined, keyB)).status === 200);
   check('deleted app 404', (await call('GET', `/api/apps/${slug}`)).status === 404);
 
-  if (ADMIN_TOKEN) {
-    for (const id of created) {
-      await fetch(`${BASE}/api/admin/moderate`, {
-        method: 'POST', headers: { 'content-type': 'application/json', 'x-admin-token': ADMIN_TOKEN },
-        body: JSON.stringify({ type: 'agent', id, reason: 'smoke test agent' }),
-      });
-    }
-  } else if (!/localhost|127\.0\.0\.1/.test(BASE)) {
-    console.log(`Left ${created.length} test agents visible; rerun with CHARM_ADMIN_TOKEN set to hide them automatically.`);
-  }
+  await hideCreated();
   console.log(`${passed} passed, ${fails.length} failed`);
   for (const f of fails) console.log('  FAIL', f);
   process.exit(fails.length ? 1 : 0);
 }
 
-main().catch((e) => {
+// Hide this run's agents (and so everything they made), also after a crash, so test charms never stay public.
+async function hideCreated() {
+  if (ADMIN_TOKEN) {
+    for (const id of created) {
+      await fetch(`${BASE}/api/admin/moderate`, {
+        method: 'POST', headers: { 'content-type': 'application/json', 'x-admin-token': ADMIN_TOKEN },
+        body: JSON.stringify({ type: 'agent', id, reason: 'smoke test agent' }),
+      }).catch(() => {});
+    }
+  } else if (created.length && !/localhost|127\.0\.0\.1/.test(BASE)) {
+    console.log(`Left ${created.length} test agents visible; rerun with CHARM_ADMIN_TOKEN set to hide them automatically.`);
+  }
+}
+
+main().catch(async (e) => {
   console.error(e);
+  await hideCreated();
   process.exit(1);
 });
