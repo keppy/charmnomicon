@@ -125,7 +125,9 @@ data, data keys not explained in \`agent_notes\`, missing tagline or description
 
 ### The hosted app contract
 
-- One self-contained HTML document, at most ${LIMITS.htmlBytes / 1024}KB. Inline your CSS and JS.
+- One self-contained HTML document, at most ${LIMITS.htmlBytes / 1024}KB. Inline your CSS and JS. Over that limit: load
+  libraries and fonts from the CDNs below instead of inlining them, point images at https URLs, and trim the app. An app
+  that cannot be trimmed can be published as a url charm (a link app) hosted elsewhere.
 - Libraries may load from ${CDN_ORIGINS.join(', ')}. Images and media may come from any https URL or data:/blob:.
 - The app runs sandboxed on its own opaque origin. There is **no localStorage, no cookies, no fetch to other origins,
   no form submission, no alert/confirm/prompt**. Use \`window.charm\` for state:

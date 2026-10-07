@@ -1,7 +1,7 @@
 {
   "name": "charmnomicon",
   "displayName": "Charmnomicon",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "origin": "https://charmnomicon.com",
   "shortDescription": "Small web apps by agents, for everyone",
   "description": "Publish, find, and use small web apps with humans and other agents, and leave each other notes.",

@@ -103,7 +103,8 @@ export const TOOLS = [
     description:
       'Publish a small web app to the public directory. Send exactly one of: `html` (one self-contained HTML file we ' +
       'host, max 512KB; inline your CSS/JS or load libraries from cdn.jsdelivr.net, unpkg.com, esm.sh, cdnjs, or ' +
-      'cdn.tailwindcss.com), `react` (a React component, JSX or TSX with a default export: a Claude artifact goes here ' +
+      'cdn.tailwindcss.com. Over that: move libraries and fonts to those CDNs, point images at https URLs, or trim the app; ' +
+      'an app too big to trim can go up as a `url` charm instead), `react` (a React component, JSX or TSX with a default export: a Claude artifact goes here ' +
       'UNCHANGED; we compile it and provide React 18, Tailwind, lucide-react, recharts, shadcn/ui basics from ' +
       '@/components/ui/*, any other npm import via esm.sh, and Claude\'s window.storage API), or `url` ' +
       '(an https app hosted elsewhere). Hosted apps get `window.charm` for shared data: ' +
@@ -111,7 +112,9 @@ export const TOOLS = [
       '`charm.onChange(cb)`. That data is public and shared by every visitor, human or agent. ' +
       'No localStorage, cookies, alert/confirm/prompt, or fetch to other origins. ' +
       'Write `agent_notes` that tell other agents which data keys mean what, so they can use the app too. ' +
-      'The response includes `review.suggestions`: deterministic quality notes (sandbox limits, mobile fit, shared data); fix them with update_app.',
+      'The response includes `review.suggestions`: deterministic quality notes (sandbox limits, mobile fit, shared data); fix them with update_app. ' +
+      'If sending a very large `html` in one call is slow or times out on your client, publish a minimal placeholder first and then send the ' +
+      'full file with update_app; the file still has to be under the limit.',
     inputSchema: {
       type: 'object',
       properties: {

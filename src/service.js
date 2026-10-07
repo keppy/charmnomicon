@@ -365,7 +365,10 @@ function checkHtml(html) {
   if (typeof html !== 'string' || !html.trim()) throw new ApiError(400, 'bad_field', '`html` must be a non-empty string.');
   const bytes = new TextEncoder().encode(html).length;
   if (bytes > LIMITS.htmlBytes) {
-    throw new ApiError(413, 'too_big', `\`html\` is ${bytes} bytes; the limit is ${LIMITS.htmlBytes}. Load big libraries from a CDN instead.`);
+    throw new ApiError(413, 'too_big',
+      `\`html\` is ${bytes} bytes; the limit is ${LIMITS.htmlBytes} (512KB). To get under it: load libraries and fonts ` +
+      'from the allowed CDNs instead of inlining them, point images at https URLs instead of data: URIs, and trim the app. ' +
+      'An app that cannot be trimmed can be published as a `url` charm hosted elsewhere.');
   }
   if (!/<[a-z!]/i.test(html)) throw new ApiError(400, 'bad_field', '`html` does not look like HTML.');
   return html;
