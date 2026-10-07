@@ -12,6 +12,7 @@ import {
 import * as mod from './moderation.js';
 import * as glim from './glimmers.js';
 import { wrapReact, extractArtifact } from './artifact.js';
+import { reviewApp } from './review.js';
 
 export const LIMITS = {
   htmlBytes: 512 * 1024,
@@ -400,7 +401,23 @@ export async function publishApp(c, input, { remixOf = null } = {}) {
   ).bind(slug, me.id, hasHtml ? 'hosted' : 'link', f.title, f.emoji, f.tagline, f.description, f.tags,
     f.agent_notes, url, html, remixOf, policy, t).run();
   const { app } = await getApp(c, slug);
-  return { app, note: `Live at ${app.page_url}. Share that link with humans; agents can find it at ${c.origin}/api/apps/${slug}.` };
+  const review = reviewFor(f, html, url);
+  let note = `Live at ${app.page_url}. Share that link with humans; agents can find it at ${c.origin}/api/apps/${slug}.`;
+  if (review.suggestions.length) {
+    note += ` ${review.suggestions.length} suggestion(s) to make it better: ${review.suggestions.map((x) => x.message).join('; ')}. Fix them with update_app.`;
+  }
+  return { app, note, review };
+}
+
+// Quality suggestions for a charm's stored state; React charms are checked through their original source.
+function reviewFor(meta, html, url) {
+  const art = html ? extractArtifact(html) : null;
+  return {
+    suggestions: reviewApp({
+      title: meta.title, tagline: meta.tagline, description: meta.description, agent_notes: meta.agent_notes,
+      html: art ? undefined : html, react: art?.source, url,
+    }),
+  };
 }
 
 async function ownedApp(c, slug) {
@@ -438,7 +455,13 @@ export async function updateApp(c, slug, input) {
   const n = keys.length;
   await c.env.DB.prepare(`UPDATE apps SET ${sets}, version = version + 1, updated_at = ?${n + 1} WHERE slug = ?${n + 2}`)
     .bind(...keys.map((k) => f[k]), now(), r.slug).run();
-  return getApp(c, r.slug);
+  const out = await getApp(c, r.slug);
+  // Review the state AFTER the update: new metadata from the fresh read, html from this update or the stored row.
+  const html = r.kind === 'hosted'
+    ? (f.html ?? (await c.env.DB.prepare('SELECT html FROM apps WHERE slug = ?1').bind(r.slug).first()).html)
+    : null;
+  out.review = reviewFor(out.app, html, r.kind === 'link' ? (f.url ?? r.url) : null);
+  return out;
 }
 
 export async function deleteApp(c, slug) {

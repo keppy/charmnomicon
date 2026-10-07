@@ -253,6 +253,70 @@ async function main() {
 
   for (const s of [openS, appS, ownS, hs, ws]) check(`delete ${s}`, (await call('DELETE', `/api/apps/${s}`, undefined, keyA)).status === 200);
 
+  // publish review: suggestions never block, they tell the agent what to fix with update_app
+  const roughHtml = '<!doctype html><html><head><title>rough</title><style>#w{width:600px}</style></head>' +
+    `<body><div id=w>hi</div><script>localStorage.setItem('k','v');alert('hi');fetch('https://example.com/x');</script></body></html>`;
+  const rough2 = await call('POST', '/api/apps', { title: 'Game', html: roughHtml }, keyA);
+  check('publish rough app', rough2.status === 200, JSON.stringify(rough2.data).slice(0, 200));
+  const rslug2 = rough2.data.app?.slug;
+  const rsug = rough2.data.review?.suggestions || [];
+  const rcodes = new Set(rsug.map((s) => s.code));
+  for (const want of ['local_storage', 'blocking_dialog', 'no_viewport', 'external_fetch', 'no_shared_data', 'no_tagline', 'no_description', 'vague_title']) {
+    check(`review flags ${want}`, rcodes.has(want), JSON.stringify(rsug));
+  }
+  check('rough note mentions update_app', /update_app/.test(rough2.data.note || ''), rough2.data.note);
+  const fixed = await call('PATCH', `/api/apps/${rslug2}`, {
+    html: '<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"><title>t</title></head>' +
+      '<body><script>await charm.set(\'count\', 1)</script></body></html>',
+  }, keyA);
+  const fixedCodes = (fixed.data.review?.suggestions || []).map((s) => s.code);
+  check('update_app returns review after fix', fixed.status === 200 && fixedCodes.length < rsug.length && !fixedCodes.includes('local_storage'),
+    JSON.stringify(fixedCodes));
+  // a metadata-only update is reviewed with the NEW metadata (not the row as it was before the update)
+  const meta = await call('PATCH', `/api/apps/${rslug2}`, { tagline: 'Now with a tagline.' }, keyA);
+  check('update review uses new metadata', meta.status === 200 && !meta.data.review.suggestions.some((x) => x.code === 'no_tagline'),
+    JSON.stringify(meta.data.review));
+  await call('DELETE', `/api/apps/${rslug2}`, undefined, keyA);
+  const linkRev = await call('POST', '/api/apps', { title: `LinkRev ${tag}`, url: 'https://example.com/a' }, keyA);
+  check('link review only metadata', linkRev.status === 200 &&
+    linkRev.data.review?.suggestions.every((s) => ['no_tagline', 'no_description', 'vague_title'].includes(s.code)),
+    JSON.stringify(linkRev.data.review));
+  await call('DELETE', `/api/apps/${linkRev.data.app.slug}`, undefined, keyA);
+
+  // clean app: zero suggestions
+  const cleanHtml = '<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1">' +
+    `<title>clean</title><script src="https://cdn.jsdelivr.net/npm/something@1/index.js"></script></head>` +
+    `<body><script>charm.set('count', 0);charm.onChange(() => {})</script></body></html>`;
+  const clean = await call('POST', '/api/apps', {
+    title: `Tidy Counter ${tag}`, emoji: '🧮', tagline: 'counting things', description: 'A clean test charm.',
+    agent_notes: 'key `count` is the tally; agents may add one.', html: cleanHtml,
+  }, keyA);
+  check('clean app gets zero suggestions', clean.status === 200 && clean.data.review?.suggestions.length === 0,
+    JSON.stringify(clean.data.review));
+  await call('DELETE', `/api/apps/${clean.data.app.slug}`, undefined, keyA);
+
+  // template-literal keys: agent_notes must mention the literal prefix
+  const tpl = await call('POST', '/api/apps', {
+    title: `Line Writer ${tag}`, tagline: 't', description: 'd',
+    html: '<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head>' +
+      '<body><script>charm.set(`line:1`, "x")</script></body></html>',
+  }, keyA);
+  check('agent_notes_keys lists line:', tpl.data.review?.suggestions.some((s) => s.code === 'agent_notes_keys' && s.message.includes('line:')),
+    JSON.stringify(tpl.data.review));
+  await call('DELETE', `/api/apps/${tpl.data.app.slug}`, undefined, keyA);
+
+  // react with a relative import still publishes, and is flagged
+  const rimp = await call('POST', '/api/apps', { title: `Rel Import ${tag}`, react: 'import x from "./utils";\nexport default function A() { return <div>{x}</div>; }' }, keyA);
+  check('react local_import flagged, still published', rimp.status === 200 &&
+    rimp.data.review?.suggestions.some((s) => s.code === 'local_import'), JSON.stringify(rimp.data.review));
+  await call('DELETE', `/api/apps/${rimp.data.app.slug}`, undefined, keyA);
+
+  // MCP publish_app carries review in structuredContent
+  const mrev = await mcp('tools/call', { name: 'publish_app', arguments: { title: `MCP Rough ${tag}`, html: roughHtml, agent_key: keyA } });
+  check('mcp publish_app includes review', mrev.result && !mrev.result.isError && Array.isArray(mrev.result.structuredContent?.review?.suggestions),
+    JSON.stringify(mrev).slice(0, 300));
+  await call('DELETE', `/api/apps/${mrev.result?.structuredContent?.app?.slug}`, undefined, keyA);
+
   // hosted runtime
   const run = await fetch(`${BASE}/run/${slug}`);
   const runHtml = await run.text();

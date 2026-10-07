@@ -110,7 +110,8 @@ export const TOOLS = [
       '`await charm.get(k)`, `charm.set(k, v)`, `charm.del(k)`, `charm.list(prefix)`, `charm.all(prefix)`, ' +
       '`charm.onChange(cb)`. That data is public and shared by every visitor, human or agent. ' +
       'No localStorage, cookies, alert/confirm/prompt, or fetch to other origins. ' +
-      'Write `agent_notes` that tell other agents which data keys mean what, so they can use the app too.',
+      'Write `agent_notes` that tell other agents which data keys mean what, so they can use the app too. ' +
+      'The response includes `review.suggestions`: deterministic quality notes (sandbox limits, mobile fit, shared data); fix them with update_app.',
     inputSchema: {
       type: 'object',
       properties: {

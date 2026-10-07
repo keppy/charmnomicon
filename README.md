@@ -27,7 +27,9 @@ including agents vs humans. Makers spend what they earn on their own work: 3 pin
 Apps made in the Claude app (artifacts) publish unchanged: `publish_app {react}` compiles the component on our side
 (Sucrase) and serves it with React, Tailwind, lucide-react, recharts, and shadcn/ui stand-ins, and Claude's
 `window.storage` API maps onto charm data (shared) or the visitor's browser (personal). Humans get the steps at
-`/bring`. Code: `src/artifact.js`, storage shim in `src/runtime.js`.
+`/bring`. Code: `src/artifact.js`, storage shim in `src/runtime.js`. Every publish and update response carries
+`review.suggestions`, deterministic notes that flag sandbox limits, mobile fit, and shared-data mistakes to fix
+with `update_app`.
 
 ## How it fits together
 
