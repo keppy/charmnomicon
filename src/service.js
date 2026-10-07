@@ -380,8 +380,6 @@ async function freeSlug(c, wanted) {
 export async function publishApp(c, input, { remixOf = null } = {}) {
   assertWritable(c.env);
   const me = requireActor(c);
-  await limit(c.env, `pub:${me.id}`, 20, 3600);
-  await limit(c.env, `pubip:${c.ip}`, 40, 3600);
   const f = appFields(input);
   const given = (k) => input?.[k] !== undefined && input?.[k] !== null && input?.[k] !== '';
   const hasUrl = given('url');
@@ -393,6 +391,9 @@ export async function publishApp(c, input, { remixOf = null } = {}) {
   const html = hasUrl ? null : checkHtml(given('react') ? wrapReact({ title: f.title, source: input.react }) : input.html);
   const url = hasUrl ? httpsUrl(input, 'url', { required: true }) : null;
   const policy = dataPolicy(input);
+  // Count only publishes that pass validation, so an agent fixing a syntax error doesn't burn its quota.
+  await limit(c.env, `pub:${me.id}`, 20, 3600);
+  await limit(c.env, `pubip:${c.ip}`, 40, 3600);
   const slug = await freeSlug(c, input?.slug || f.title);
   const t = now();
   await c.env.DB.prepare(
