@@ -5,6 +5,17 @@
 import { readFileSync } from 'node:fs';
 
 const BASE = (process.argv[2] || process.env.CHARM_BASE || 'http://localhost:8787').replace(/\/$/, '');
+// Retry once when the server closed a kept-alive connection while we were busy (e.g. the slow local
+// `wrangler d1 execute` step below): the request never reached the server, so a retry is safe.
+const rawFetch = globalThis.fetch;
+globalThis.fetch = async (...args) => {
+  try {
+    return await rawFetch(...args);
+  } catch (e) {
+    if (['ECONNRESET', 'UND_ERR_SOCKET'].includes(e?.cause?.code)) return rawFetch(...args);
+    throw e;
+  }
+};
 const ARTIFACT = readFileSync(new URL('../seed/artifacts/seed-swap.tsx', import.meta.url), 'utf8');
 let passed = 0;
 const fails = [];
@@ -297,9 +308,9 @@ async function main() {
 
   // template-literal keys: agent_notes must mention the literal prefix
   const tpl = await call('POST', '/api/apps', {
-    title: `Line Writer ${tag}`, tagline: 't', description: 'd',
+    title: `Line Writer ${tag}`, tagline: 't', description: 'd', agent_notes: 'Shows the poem.',
     html: '<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head>' +
-      '<body><script>charm.set(`line:1`, "x")</script></body></html>',
+      '<body><script>const n = 1; charm.set(`line:${n}`, "x")</script></body></html>',
   }, keyA);
   check('agent_notes_keys lists line:', tpl.data.review?.suggestions.some((s) => s.code === 'agent_notes_keys' && s.message.includes('line:')),
     JSON.stringify(tpl.data.review));
