@@ -13,13 +13,9 @@ import * as mod from './moderation.js';
 import * as glim from './glimmers.js';
 import { wrapReact, extractArtifact } from './artifact.js';
 import { reviewApp } from './review.js';
+import { LIMITS, KB, FONT_HOSTS } from './limits.js';
 
-export const LIMITS = {
-  htmlBytes: 512 * 1024,
-  dataKeys: 1000,
-  dataValueBytes: 16 * 1024,
-  messageChars: 500,
-};
+export { LIMITS };
 
 const iso = (t) => (t ? new Date(t * 1000).toISOString() : null);
 
@@ -361,14 +357,21 @@ function appFields(input, { partial = false } = {}) {
   return f;
 }
 
-function checkHtml(html) {
+// `react` is set when html is the page wrapReact built: that page stores the component source AND its compiled
+// code, so the error must name the component and say the room it has is about half the limit.
+function checkHtml(html, { react = false } = {}) {
   if (typeof html !== 'string' || !html.trim()) throw new ApiError(400, 'bad_field', '`html` must be a non-empty string.');
   const bytes = new TextEncoder().encode(html).length;
   if (bytes > LIMITS.htmlBytes) {
-    throw new ApiError(413, 'too_big',
-      `\`html\` is ${bytes} bytes; the limit is ${LIMITS.htmlBytes} (512KB). To get under it: load libraries and fonts ` +
-      'from the allowed CDNs instead of inlining them, point images at https URLs instead of data: URIs, and trim the app. ' +
-      'An app that cannot be trimmed can be published as a `url` charm hosted elsewhere.');
+    const limit = `${LIMITS.htmlBytes} bytes (${KB(LIMITS.htmlBytes)})`;
+    throw new ApiError(413, 'too_big', react
+      ? `Your \`react\` component becomes a ${bytes}-byte page; the limit is ${limit}. The page stores your source next to ` +
+        `the compiled code, so a component has room for about half of that. To get under it: import libraries instead of ` +
+        `pasting them in (any npm import resolves via esm.sh), point images at https URLs instead of data: URIs, and trim ` +
+        'the component. An app that cannot be trimmed can be published as a `url` charm hosted elsewhere.'
+      : `\`html\` is ${bytes} bytes; the limit is ${limit}. To get under it: load libraries from the allowed CDNs and ` +
+        `fonts from Google Fonts (${FONT_HOSTS}) instead of inlining them, point images at https URLs instead of data: URIs, ` +
+        'and trim the app. An app that cannot be trimmed can be published as a `url` charm hosted elsewhere.');
   }
   if (!/<[a-z!]/i.test(html)) throw new ApiError(400, 'bad_field', '`html` does not look like HTML.');
   return html;
@@ -391,7 +394,8 @@ export async function publishApp(c, input, { remixOf = null } = {}) {
       'Send exactly one of `html` (a page we host), `react` (a React component, e.g. a Claude artifact, that we host), or `url` (an app hosted elsewhere).');
   }
   const hasHtml = !hasUrl;
-  const html = hasUrl ? null : checkHtml(given('react') ? wrapReact({ title: f.title, source: input.react }) : input.html);
+  const html = hasUrl ? null
+    : given('react') ? checkHtml(wrapReact({ title: f.title, source: input.react }), { react: true }) : checkHtml(input.html);
   const url = hasUrl ? httpsUrl(input, 'url', { required: true }) : null;
   const policy = dataPolicy(input);
   // Count only publishes that pass validation, so an agent fixing a syntax error doesn't burn its quota.
@@ -447,7 +451,9 @@ export async function updateApp(c, slug, input) {
   }
   if (input?.html !== undefined || input?.react !== undefined) {
     if (r.kind !== 'hosted') throw new ApiError(400, 'not_hosted', 'Link apps take `url`, not `html` or `react`.');
-    f.html = checkHtml(input.react !== undefined ? wrapReact({ title: f.title ?? r.title, source: input.react }) : input.html);
+    f.html = input.react !== undefined
+      ? checkHtml(wrapReact({ title: f.title ?? r.title, source: input.react }), { react: true })
+      : checkHtml(input.html);
   }
   if (input?.url !== undefined) {
     if (r.kind !== 'link') throw new ApiError(400, 'not_link', 'Hosted apps take `html`, not `url`.');
