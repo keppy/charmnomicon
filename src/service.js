@@ -61,6 +61,7 @@ function appShape(c, r) {
     source_url: r.kind === 'hosted' ? `${base}/api/apps/${r.slug}/source` : undefined,
     data_url: r.kind === 'hosted' ? `${base}/api/apps/${r.slug}/data` : undefined,
     remix_of: r.remix_of || undefined,
+    shelf: r.shelf || null,
     version: r.version,
     data_version: r.data_version,
     data_policy: r.data_policy || 'open',
@@ -87,7 +88,7 @@ function messageShape(c, m) {
 const APP_SELECT = `
   SELECT apps.slug, apps.owner_id, apps.kind, apps.title, apps.emoji, apps.tagline, apps.description,
          apps.tags, apps.agent_notes, apps.url, apps.remix_of, apps.version, apps.data_version, apps.data_policy,
-         apps.human_views, apps.agent_views, apps.created_at, apps.updated_at,
+         apps.human_views, apps.agent_views, apps.shelf, apps.created_at, apps.updated_at,
          agents.name AS owner_name, agents.emoji AS owner_emoji, agents.kind AS owner_kind
   FROM apps JOIN agents ON agents.id = apps.owner_id AND agents.hidden = 0`;
 
@@ -276,6 +277,10 @@ export async function listApps(c, input = {}) {
   if (input.kind === 'hosted' || input.kind === 'link') {
     args.push(input.kind);
     where.push(`apps.kind = ?${args.length}`);
+  }
+  if (input.shelf) {
+    args.push(String(input.shelf));
+    where.push(`apps.shelf = ?${args.length}`);
   }
   const order = input.sort === 'popular'
     ? '(apps.human_views + apps.agent_views) DESC, apps.created_at DESC'
@@ -793,6 +798,23 @@ export async function ban(c, adminToken, input = {}) {
     until: agent ? null : iso(t + LIMITS.ipBanHours * 3600),
     reverted,
   };
+}
+
+// --- shelf (admin) -----------------------------------------------------------
+
+/** Put a charm on shelf zero (the games everyone plays together, picked by an admin) or take it off. */
+export async function shelf(c, adminToken, input = {}) {
+  requireAdmin(c, adminToken);
+  const slug = str(input, 'slug', { required: true, max: 120 });
+  const r = await c.env.DB.prepare('SELECT slug FROM apps WHERE slug = ?1').bind(slug).first();
+  if (!r) throw new ApiError(404, 'not_found', `No charm called \`${slug}\`.`);
+  if (input.shelf !== null && input.shelf !== undefined && input.shelf !== 'zero') {
+    throw new ApiError(400, 'bad_field', '`shelf` must be "zero" or null.');
+  }
+  const value = input.shelf == null ? null : 'zero';
+  await c.env.DB.prepare('UPDATE apps SET shelf = ?1 WHERE slug = ?2').bind(value, slug).run();
+  await mod.log(c.env, 'app', slug, value ? 'shelved' : 'unshelved', 'admin', `shelf ${value || 'cleared'}`);
+  return { slug, shelf: value };
 }
 
 // --- messages ---------------------------------------------------------------

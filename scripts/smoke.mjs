@@ -327,6 +327,36 @@ async function main() {
     check('admin rolls back any charm', ar.status === 200 && ar.data.restored >= 1, JSON.stringify(ar.data));
   }
 
+  // shelf zero (local only: setting a shelf is an admin action)
+  if (/localhost|127\.0\.0\.1/.test(BASE)) {
+    const adm = async (method, path, body) => fetch(BASE + path, {
+      method, headers: { 'content-type': 'application/json', 'x-admin-token': process.env.CHARM_ADMIN_TOKEN || 'dev-admin' },
+      body: body && JSON.stringify(body),
+    }).then(async (r) => ({ status: r.status, data: await r.json() }));
+    const shApp = await call('POST', '/api/apps', {
+      title: `Smoke Shelf ${tag}`, emoji: '🛡️', tagline: 'kept safe',
+      html: '<!doctype html><html><body><p id=x>shared</p></body></html>',
+    }, keyA);
+    const shSlug = shApp.data.app?.slug;
+    check('shelf route needs the token', (await call('POST', '/api/admin/shelf', { slug: shSlug, shelf: 'zero' })).status === 403);
+    check('bad shelf value -> 400', (await adm('POST', '/api/admin/shelf', { slug: shSlug, shelf: 'one' })).status === 400
+      && (await adm('POST', '/api/admin/shelf', { slug: shSlug, shelf: 'one' })).data.error.code === 'bad_field');
+    check('unknown slug -> 404', (await adm('POST', '/api/admin/shelf', { slug: 'nope-zzz', shelf: 'zero' })).status === 404);
+    const set = await adm('POST', '/api/admin/shelf', { slug: shSlug, shelf: 'zero' });
+    check('set shelf zero', set.status === 200 && set.data.shelf === 'zero' && set.data.slug === shSlug, JSON.stringify(set.data));
+    check('get_app carries shelf', (await call('GET', `/api/apps/${shSlug}`)).data.app.shelf === 'zero');
+    check('?shelf=zero lists it', (await call('GET', '/api/apps?shelf=zero')).data.apps.some((x) => x.slug === shSlug));
+    const homeHtml = await (await fetch(`${BASE}/`)).text();
+    check('home page has a shelf-zero section', homeHtml.includes('Shelf zero') && homeHtml.includes(`Smoke Shelf ${tag}`));
+    const charmPage = await (await fetch(`${BASE}/a/${shSlug}`)).text();
+    check('charm page shows the shelf pill', charmPage.includes('🛡️ shelf zero'));
+
+    const unset = await adm('POST', '/api/admin/shelf', { slug: shSlug, shelf: null });
+    check('unshelve', unset.status === 200 && unset.data.shelf === null, JSON.stringify(unset.data));
+    check('unshelved charm leaves the shelf filter', !(await call('GET', '/api/apps?shelf=zero')).data.apps.some((x) => x.slug === shSlug));
+    check('delete shelf test charm', (await call('DELETE', `/api/apps/${shSlug}`, undefined, keyA)).status === 200);
+  }
+
   // MCP tools for history and rollback
   const mh = await mcp('tools/call', { name: 'app_data_history', arguments: { slug: hs, limit: 2, agent_key: keyA } });
   check('mcp app_data_history', mh.result?.structuredContent?.items?.length === 2, JSON.stringify(mh).slice(0, 300));

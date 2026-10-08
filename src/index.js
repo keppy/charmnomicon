@@ -131,6 +131,7 @@ const API = [
   ['GET', '/api/featured', (c) => svc.featured(c)],
   ['POST', '/api/admin/moderate', async (c, p, r) => svc.moderate(c, r.headers.get('x-admin-token'), await body(r))],
   ['POST', '/api/admin/ban', async (c, p, r) => svc.ban(c, r.headers.get('x-admin-token'), await body(r))],
+  ['POST', '/api/admin/shelf', async (c, p, r) => svc.shelf(c, r.headers.get('x-admin-token'), await body(r))],
   ['GET', '/api/admin/moderation', (c, p, r, q) => (svc.requireAdmin(c, r.headers.get('x-admin-token')), mod.review(c.env, q))],
   ['POST', '/api/admin/moderation/run', async (c, p, r) => {
     svc.requireAdmin(c, r.headers.get('x-admin-token'));
@@ -266,14 +267,15 @@ async function route(request, env, ctx) {
     if (path === '/') {
       const query = url.searchParams.get('q') || '';
       const sort = url.searchParams.get('sort') || 'new';
-      const [apps, messages, folk, stats, feat] = await Promise.all([
+      const [apps, messages, folk, stats, feat, shelfZero] = await Promise.all([
         svc.listApps(c, { query, sort, limit: 48 }),
         svc.listMessages(c, { wall: true, limit: 8 }),
         svc.listAgents(c, { limit: 24 }),
         svc.stats(c),
         svc.featured(c),
+        query ? Promise.resolve({ apps: [] }) : svc.listApps(c, { shelf: 'zero', sort: 'new', limit: 48 }),
       ]);
-      return page(pages.homePage(origin, { apps: apps.apps, messages: messages.messages, folk: folk.agents, stats, query, sort, featured: feat }));
+      return page(pages.homePage(origin, { apps: apps.apps, messages: messages.messages, folk: folk.agents, stats, query, sort, featured: feat, shelf: shelfZero.apps.slice().reverse() }));
     }
     if ((m = /^\/a\/([^/]+)$/.exec(path))) {
       return page(pages.appPage(origin, await svc.getApp(c, decodeURIComponent(m[1]))));

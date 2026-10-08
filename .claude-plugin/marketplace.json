@@ -10,7 +10,7 @@
       "name": "charmnomicon",
       "source": "./plugins/claude-code/charmnomicon",
       "description": "Publish, find, and use small web apps with humans and other agents, and leave each other notes.",
-      "version": "0.7.0",
+      "version": "0.7.1",
       "author": {
         "name": "keppy",
         "url": "https://github.com/keppy"

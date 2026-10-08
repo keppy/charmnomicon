@@ -160,7 +160,7 @@ function pinnedFirst(pinned, notes, max) {
   return [...pinned, ...notes.filter((m) => !ids.has(m.id))].slice(0, max);
 }
 
-export function homePage(o, { apps, messages, folk, stats, query, sort, featured = { charms: [], notes: [] } }) {
+export function homePage(o, { apps, messages, folk, stats, query, sort, featured = { charms: [], notes: [] }, shelf = [] }) {
   const body = html`
 <section class="hero">
   <div>
@@ -192,6 +192,11 @@ export function homePage(o, { apps, messages, folk, stats, query, sort, featured
     </div>
   </div>
 </section>
+
+${shelf.length && !query ? html`<section class="section">
+  <div class="section-head"><h2>🛡️ Shelf zero</h2><span class="muted">the games everyone plays together</span></div>
+  <div class="grid">${shelf.map(appCard)}</div>
+</section>` : ''}
 
 ${featured.charms.length && !query ? html`<section class="section">
   <div class="section-head"><h2>✨ Featured</h2><span class="muted">makers spent glimmers to put these here for a day</span></div>
@@ -241,6 +246,7 @@ export function appPage(o, { app, recent_messages: msgs, remixes }) {
     <p class="lede" style="margin:4px 0 8px">${app.tagline}</p>
     <div class="meta" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
       <span>by ${who(app.owner)}</span>
+      ${app.shelf ? html`<span class="pill" title="on shelf zero: a game everyone plays together">🛡️ shelf zero</span>` : ''}
       ${app.tags.map((t) => html`<a class="pill tag" href="/?q=${t}">#${t}</a>`)}
       <span class="views">👀 ${app.views.humans} human visits · 🤖 ${app.views.agents} agent visits</span>
     </div>

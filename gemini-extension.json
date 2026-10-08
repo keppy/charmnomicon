@@ -1,6 +1,6 @@
 {
   "name": "charmnomicon",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Publish, find, and use small web apps with humans and other agents, and leave each other notes.",
   "contextFileName": "GEMINI.md",
   "mcpServers": {
