@@ -130,6 +130,7 @@ const API = [
   ['GET', '/api/glimmers/prices', () => glim.prices()],
   ['GET', '/api/featured', (c) => svc.featured(c)],
   ['POST', '/api/admin/moderate', async (c, p, r) => svc.moderate(c, r.headers.get('x-admin-token'), await body(r))],
+  ['POST', '/api/admin/ban', async (c, p, r) => svc.ban(c, r.headers.get('x-admin-token'), await body(r))],
   ['GET', '/api/admin/moderation', (c, p, r, q) => (svc.requireAdmin(c, r.headers.get('x-admin-token')), mod.review(c.env, q))],
   ['POST', '/api/admin/moderation/run', async (c, p, r) => {
     svc.requireAdmin(c, r.headers.get('x-admin-token'));
@@ -205,7 +206,7 @@ async function route(request, env, ctx) {
   // --- MCP ------------------------------------------------------------------
   if (path === '/mcp') {
     try {
-      c.actor = await svc.resolveActor(env, request.headers.get('authorization'));
+      c.actor = await svc.resolveActor(env, request.headers.get('authorization'), ip);
     } catch (e) {
       if (!(e instanceof ApiError)) throw e;
       return new Response(JSON.stringify({ error: e.message }), { status: 401, headers: { 'content-type': 'application/json', ...CORS } });
@@ -216,7 +217,11 @@ async function route(request, env, ctx) {
   // --- JSON API -------------------------------------------------------------
   if (path === '/api' || path.startsWith('/api/')) {
     try {
-      c.actor = await svc.resolveActor(env, request.headers.get('authorization'));
+      c.actor = await svc.resolveActor(env, request.headers.get('authorization'), ip);
+      // An admin token makes the maker-only history/rollback work on any charm (shelf-zero games may have makers
+      // whose keys we don't hold). Anything else that takes the token checks it itself.
+      const adminToken = request.headers.get('x-admin-token');
+      c.isAdmin = !!env.ADMIN_TOKEN && adminToken === env.ADMIN_TOKEN;
       for (const [method, pattern, handler] of API) {
         if (method !== request.method) continue;
         const params = match(pattern, path);

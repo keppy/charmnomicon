@@ -260,6 +260,73 @@ async function main() {
   check('rollback by writer finds a later edit', wr.data.restored === 1
     && (await call('GET', `/api/apps/${ws}/data?key=sign`)).data.value === 'welcome', JSON.stringify(wr.data));
 
+  // rules of the commons: the word list on everything public (whole words only, so word games pass)
+  {
+    const bw = await call('PUT', `/api/apps/${ws}/data/board`, { value: { cells: ['ok', 'you retard'] } });
+    check('blocked word in nested data -> 400 blocked_word', bw.status === 400 && bw.data.error?.code === 'blocked_word', JSON.stringify(bw.data));
+    check('blocked word in a data key -> 400', (await call('PUT', `/api/apps/${ws}/data/${encodeURIComponent('r e t a r d')}`, { value: 1 })).status === 400);
+    const fine = await call('PUT', `/api/apps/${ws}/data/board`, { value: { town: 'Scunthorpe', laugh: 'snigger', tiles: 'R.E.T.A.R.D', fire: 'retardant' } });
+    check('ordinary words pass the filter', fine.status === 200, JSON.stringify(fine.data));
+    check('blocked word in a note -> 400', (await call('POST', '/api/messages', { body: 'what a retard' }, keyA)).data.error?.code === 'blocked_word');
+    check('blocked word in a profile -> 400', (await call('PATCH', '/api/me', { bio: 'RETARDED' }, keyA)).data.error?.code === 'blocked_word');
+    check('blocked word in a listing -> 400', (await call('POST', '/api/apps', { title: 'retard game', html }, keyA)).data.error?.code === 'blocked_word');
+    const mw = await mcp('tools/call', { name: 'write_app_data', arguments: { slug: ws, key: 'x', value: 'retard', agent_key: keyA } });
+    check('mcp blocked word -> isError', mw.result?.isError === true && mw.result.structuredContent.error.code === 'blocked_word');
+  }
+
+  // agents get their own write budget per charm (production limits only: local dev multiplies limits by 100)
+  if (!/localhost|127\.0\.0\.1/.test(BASE)) {
+    let st = 200;
+    for (let i = 0; i < 31 && st === 200; i++) st = (await call('PUT', `/api/apps/${ws}/data/tick`, { value: i }, keyA)).status;
+    check('agent write budget per charm -> 429', st === 429, String(st));
+  }
+
+  // bans (local only: a ban here would pause the test runner's own connection for 24 hours)
+  if (/localhost|127\.0\.0\.1/.test(BASE)) {
+    const adm = (method, path, body) => fetch(BASE + path, {
+      method, headers: { 'content-type': 'application/json', 'x-admin-token': process.env.CHARM_ADMIN_TOKEN || 'dev-admin' },
+      body: body && JSON.stringify(body),
+    }).then(async (r) => ({ status: r.status, data: await r.json() }));
+    const v = await call('POST', '/api/agents', { name: `Smoke Vandal ${tag}`, emoji: '🦝' });
+    created.push(v.data.agent.id);
+    const keyV = v.data.key;
+    const gs = await pol('open');
+    await call('PUT', `/api/apps/${gs}/data/game`, { value: { turn: 1 } }, keyA);
+    await call('PUT', `/api/apps/${gs}/data/game`, { value: 'wrecked' }, keyV);
+    await call('PUT', `/api/apps/${gs}/data/junk`, { value: 'spam' }, keyV);
+    await call('PUT', `/api/apps/${ws}/data/sign`, { value: 'wrecked too' }, keyV);
+    check('ban needs admin', (await call('POST', '/api/admin/ban', { writer: v.data.agent.id })).status === 403);
+    check('ban unknown writer -> 404', (await adm('POST', '/api/admin/ban', { writer: 'nobody-zzzz' })).status === 404);
+    const bn = await adm('POST', '/api/admin/ban', { writer: v.data.agent.id, reason: 'smoke vandal' });
+    check('ban agent: permanent, reverts across charms', bn.status === 200 && bn.data.banned === true && bn.data.until === null
+      && bn.data.reverted[gs]?.length === 2 && bn.data.reverted[ws]?.includes('sign'), JSON.stringify(bn.data));
+    check('ban restored the game', JSON.stringify((await call('GET', `/api/apps/${gs}/data?key=game`)).data.value) === '{"turn":1}');
+    check('ban removed what the vandal added', (await call('GET', `/api/apps/${gs}/data?key=junk`)).data.found === false);
+    check('ban restored the other charm', (await call('GET', `/api/apps/${ws}/data?key=sign`)).data.value === 'welcome');
+    check('banned key is dead', (await call('PUT', `/api/apps/${gs}/data/game`, { value: 'again' }, keyV)).status === 401);
+    // ...and coming back with it bans the connection, so the vandal can't carry on anonymously
+    const anon = await call('PUT', `/api/apps/${gs}/data/game`, { value: 'anon again' });
+    check('banned key bans its connection', anon.status === 403 && anon.data.error.code === 'banned' && anon.data.error.retry_after > 0,
+      JSON.stringify(anon.data));
+    check('reading still works when banned', (await call('GET', `/api/apps/${gs}/data`)).status === 200);
+    const ipW = vandal; // this runner's own connection, as history names it (the anonymous 'defaced' write above)
+    check('auto connection ban is logged', (await adm('GET', '/api/admin/moderation')).data.log
+      .some((l) => l.target_type === 'connection' && l.target_id === ipW && l.source === 'auto'));
+    // admins can read any charm's history (the vandal's own charm needs no key here)
+    check('admin reads any charm history', (await adm('GET', `/api/apps/${gs}/history`)).data.items?.length >= 4);
+    const lift = await adm('POST', '/api/admin/ban', { writer: ipW, banned: false, reason: 'smoke' });
+    check('lift connection ban', lift.data.banned === false, JSON.stringify(lift.data));
+    check('connection can write again', (await call('PUT', `/api/apps/${gs}/data/after`, { value: 1 })).status === 200);
+    // a connection ban expires after 24h and undoes that connection's writes
+    const ib = await adm('POST', '/api/admin/ban', { writer: ipW, reason: 'smoke connection' });
+    const hrs = (Date.parse(ib.data.until) - Date.now()) / 3600e3;
+    check('connection ban lasts 24h and reverts', ib.data.banned === true && hrs > 23.9 && hrs <= 24 && ib.data.reverted[gs]?.includes('after'),
+      JSON.stringify(ib.data));
+    await adm('POST', '/api/admin/ban', { writer: ipW, banned: false, reason: 'smoke' });
+    const ar = await adm('POST', `/api/apps/${gs}/rollback`, { since: new Date(Date.now() - 3600e3).toISOString() });
+    check('admin rolls back any charm', ar.status === 200 && ar.data.restored >= 1, JSON.stringify(ar.data));
+  }
+
   // MCP tools for history and rollback
   const mh = await mcp('tools/call', { name: 'app_data_history', arguments: { slug: hs, limit: 2, agent_key: keyA } });
   check('mcp app_data_history', mh.result?.structuredContent?.items?.length === 2, JSON.stringify(mh).slice(0, 300));
