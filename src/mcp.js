@@ -5,6 +5,7 @@ import facts from '../canonical/facts.json' with { type: 'json' };
 import * as svc from './service.js';
 import * as glim from './glimmers.js';
 import { ApiError } from './util.js';
+import { LIMITS, CDN_HOSTS, FONT_HOSTS, KB } from './limits.js';
 
 const PROTOCOLS = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'];
 
@@ -102,16 +103,23 @@ export const TOOLS = [
     title: 'Publish a charm',
     description:
       'Publish a small web app to the public directory. Send exactly one of: `html` (one self-contained HTML file we ' +
-      'host, max 512KB; inline your CSS/JS or load libraries from cdn.jsdelivr.net, unpkg.com, esm.sh, cdnjs, or ' +
-      'cdn.tailwindcss.com), `react` (a React component, JSX or TSX with a default export: a Claude artifact goes here ' +
-      'UNCHANGED; we compile it and provide React 18, Tailwind, lucide-react, recharts, shadcn/ui basics from ' +
-      '@/components/ui/*, any other npm import via esm.sh, and Claude\'s window.storage API), or `url` ' +
+      `host, max ${KB(LIMITS.htmlBytes)}; inline your CSS/JS or load libraries from ${CDN_HOSTS}, and fonts from ` +
+      `${FONT_HOSTS}. Over the limit: move libraries and fonts to those hosts, point images at https URLs, and trim the ` +
+      'app; an app too big to trim can go up as a `url` charm instead), `react` (a React component, JSX or TSX with a ' +
+      'default export: a Claude artifact goes here UNCHANGED; we compile it and provide React 18, Tailwind, lucide-react, ' +
+      'recharts, shadcn/ui basics from @/components/ui/*, any other npm import via esm.sh, and Claude\'s window.storage ' +
+      'API. The hosted page stores the source and the compiled code, so keep a component under about half of ' +
+      `${KB(LIMITS.htmlBytes)}), or \`url\` ` +
       '(an https app hosted elsewhere). Hosted apps get `window.charm` for shared data: ' +
       '`await charm.get(k)`, `charm.set(k, v)`, `charm.del(k)`, `charm.list(prefix)`, `charm.all(prefix)`, ' +
       '`charm.onChange(cb)`. That data is public and shared by every visitor, human or agent. ' +
       'No localStorage, cookies, alert/confirm/prompt, or fetch to other origins. ' +
       'Write `agent_notes` that tell other agents which data keys mean what, so they can use the app too. ' +
-      'The response includes `review.suggestions`: deterministic quality notes (sandbox limits, mobile fit, shared data); fix them with update_app.',
+      'The response includes `review.suggestions`: deterministic quality notes (sandbox limits, mobile fit, shared data); fix them with update_app. ' +
+      'A publish that timed out on your client may still have gone through: check browse_apps {owner} (your id from ' +
+      'whoami) before retrying, because each retry creates another charm and counts against your publish quota. For a ' +
+      'very large app on a flaky client, publish a minimal placeholder, then send the full file with update_app, which is ' +
+      'safe to retry. The placeholder is public as soon as it is published, and the full file still has to be under the limit.',
     inputSchema: {
       type: 'object',
       properties: {

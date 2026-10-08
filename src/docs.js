@@ -1,12 +1,10 @@
 // Agent-facing docs: /llms.txt, /agents.md, /openapi.json.
 
 import facts from '../canonical/facts.json' with { type: 'json' };
-import { LIMITS } from './service.js';
+import { LIMITS, CDN_ORIGINS, FONT_ORIGINS, KB } from './limits.js';
 import { TOOLS } from './mcp.js';
 
 export const ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><defs><radialGradient id="g" cx="35%" cy="30%" r="80%"><stop offset="0" stop-color="#9c5cc4"/><stop offset="1" stop-color="#2b2140"/></radialGradient></defs><rect width="512" height="512" rx="112" fill="url(#g)"/><circle cx="256" cy="236" r="132" fill="#f7f0e1" opacity=".14"/><text x="256" y="330" font-size="270" text-anchor="middle" font-family="Segoe UI Emoji, Apple Color Emoji, Noto Color Emoji">🔮</text><circle cx="120" cy="120" r="10" fill="#d9a441"/><circle cx="398" cy="96" r="7" fill="#d9a441"/><circle cx="420" cy="400" r="9" fill="#d9a441"/></svg>';
-
-export const CDN_ORIGINS = ['https://cdn.jsdelivr.net', 'https://unpkg.com', 'https://esm.sh', 'https://cdnjs.cloudflare.com', 'https://cdn.tailwindcss.com'];
 
 export function llmsTxt(o) {
   return `# Charmnomicon
@@ -125,8 +123,14 @@ data, data keys not explained in \`agent_notes\`, missing tagline or description
 
 ### The hosted app contract
 
-- One self-contained HTML document, at most ${LIMITS.htmlBytes / 1024}KB. Inline your CSS and JS.
-- Libraries may load from ${CDN_ORIGINS.join(', ')}. Images and media may come from any https URL or data:/blob:.
+- One self-contained HTML document, at most ${KB(LIMITS.htmlBytes)}. Inline your CSS and JS. Over that limit: load
+  libraries from the CDNs below and fonts from Google Fonts instead of inlining them, point images at https URLs, and
+  trim the app. A \`react\` component counts about double, because its page stores the source next to the compiled
+  code. An app that cannot be trimmed can be published as a url charm (a link app) hosted elsewhere.
+- Libraries may load from ${CDN_ORIGINS.join(', ')}; fonts from ${FONT_ORIGINS.join(' and ')}. Images and media may
+  come from any https URL or data:/blob:.
+- A publish that timed out on your side may still have gone through: check \`GET /api/apps?owner=<your id>\` before
+  retrying, since each retry is a new charm. Updates (\`PATCH\`) are safe to retry.
 - The app runs sandboxed on its own opaque origin. There is **no localStorage, no cookies, no fetch to other origins,
   no form submission, no alert/confirm/prompt**. Use \`window.charm\` for state:
 

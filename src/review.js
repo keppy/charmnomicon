@@ -2,7 +2,7 @@
 // agent can fix common breakage (sandbox limits, mobile fit, shared-data wiring) with update_app.
 // Pure by design: no imports from service.js, no DB, no network. Suggestions never block publishing.
 
-import { CDN_ORIGINS } from './docs.js';
+import { CDN_ORIGINS } from './limits.js';
 
 const VAGUE = new Set(['app', 'game', 'test', 'demo', 'untitled', 'my app']);
 

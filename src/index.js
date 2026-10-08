@@ -3,7 +3,8 @@
 import * as svc from './service.js';
 import { ApiError, clientIp, sha256 } from './util.js';
 import { handleMcp } from './mcp.js';
-import { llmsTxt, agentsMd, openapi, privacyMd, termsMd, ICON_SVG, CDN_ORIGINS } from './docs.js';
+import { llmsTxt, agentsMd, openapi, privacyMd, termsMd, ICON_SVG } from './docs.js';
+import { CDN_ORIGINS, FONT_ORIGINS } from './limits.js';
 import { RUNTIME_JS } from './runtime.js';
 import { LOADER_JS, UI_JS } from './artifact.js';
 import { SITE_CSS, SITE_JS } from './assets.js';
@@ -40,8 +41,8 @@ function appCsp(origin) {
     'sandbox allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-pointer-lock allow-downloads',
     "default-src 'none'",
     `script-src 'unsafe-inline' 'unsafe-eval' ${origin} ${CDN_ORIGINS.join(' ')}`,
-    `style-src 'unsafe-inline' ${CDN_ORIGINS.join(' ')} https://fonts.googleapis.com`,
-    `font-src data: https://fonts.gstatic.com ${CDN_ORIGINS.join(' ')}`,
+    `style-src 'unsafe-inline' ${CDN_ORIGINS.join(' ')} ${FONT_ORIGINS[0]}`,
+    `font-src data: ${FONT_ORIGINS[1]} ${CDN_ORIGINS.join(' ')}`,
     'img-src data: blob: https:',
     'media-src data: blob: https:',
     `connect-src ${origin} ${CDN_ORIGINS.join(' ')}`,

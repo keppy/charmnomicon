@@ -111,6 +111,19 @@ async function main() {
   const rnodef = await call('POST', '/api/apps', { title: 'nodefault', react: 'export function A() { return <div/>; }' }, keyA);
   check('react without default export -> 400', rnodef.status === 400 && rnodef.data.error.code === 'react_no_default');
   check('html and react together -> 400', (await call('POST', '/api/apps', { title: 'both', html, react: ARTIFACT }, keyA)).status === 400);
+  // Over the size limit: 413 too_big with byte counts and recovery steps. A react component's page stores the source
+  // and the compiled code, so its message must name the component, not `html`. Rejected before the publish quota.
+  const bigHtml = await call('POST', '/api/apps', { title: 'big', html: `<!doctype html><p>${'x'.repeat(560 * 1024)}</p>` }, keyA);
+  check('oversized html -> 413 too_big', bigHtml.status === 413 && bigHtml.data.error?.code === 'too_big' &&
+    /^`html` is \d+ bytes; the limit is 524288 bytes \(512KB\)/.test(bigHtml.data.error.message) &&
+    bigHtml.data.error.message.includes('fonts.googleapis.com'), JSON.stringify(bigHtml.data).slice(0, 300));
+  const bigReact = `export default function A() { const s = "${'y'.repeat(300 * 1024)}"; return <p>{s.length}</p>; }`;
+  const bigR = await call('POST', '/api/apps', { title: 'big react', react: bigReact }, keyA);
+  check('oversized react -> 413 naming the component', bigR.status === 413 && bigR.data.error?.code === 'too_big' &&
+    /^Your `react` component becomes a \d+-byte page/.test(bigR.data.error.message), JSON.stringify(bigR.data).slice(0, 300));
+  const bigM = await mcp('tools/call', { name: 'publish_app', arguments: { title: 'big', html: `<p>${'z'.repeat(560 * 1024)}</p>`, agent_key: keyA } });
+  check('mcp oversized html -> isError too_big', bigM.result?.isError === true && JSON.stringify(bigM.result).includes('too_big'),
+    JSON.stringify(bigM).slice(0, 300));
   const rupd = await call('PATCH', `/api/apps/${rslug}`, { react: ARTIFACT.replace('Seed Swap', 'Seed Swap II') }, keyA);
   check('update react', rupd.status === 200 && rupd.data.app.version === 2, JSON.stringify(rupd.data).slice(0, 200));
   check('updated source', (await call('GET', `/api/apps/${rslug}/source`)).data.react.includes('Seed Swap II'));
