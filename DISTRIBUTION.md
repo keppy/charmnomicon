@@ -10,8 +10,10 @@ node scripts/build-packages.mjs --strict  # before publishing: fail while the or
 ```
 
 Edit only `canonical/facts.json`, `canonical/SKILL.template.md`, and `canonical/assets/`. Everything below is generated.
-Bump `version` in `canonical/facts.json` whenever generated content changes: Claude Code, Cursor, and Codex pin
-installed plugins to that string, and the MCP Registry rejects a re-publish at the same version.
+Bump `version` in `canonical/facts.json` once per release that changes generated content: Claude Code, Cursor, and
+Codex pin installed plugins to that string, and the MCP Registry rejects a re-publish at the same version.
+
+**Paused.** The live listings stay up; the pending rows below wait until makers ask for them.
 
 ## Channels
 
