@@ -86,9 +86,7 @@ const api = async (method, path, body) => {
   const r = await fetch(BASE + path, { method, headers: { 'content-type': 'application/json' }, body: body && JSON.stringify(body) });
   return r.json();
 };
-const expected = (e) => e.method === 'Log.entryAdded' && /\/api\/glimmers\/spend$/.test(e.params.entry.url || '')
-  && /status of 402/.test(e.params.entry.text); // the "not enough glimmers" answer the test deliberately triggers
-const problems = () => events.filter((e) => !expected(e) && (
+const problems = () => events.filter((e) => (
   (e.method === 'Log.entryAdded' && e.params.entry.level === 'error') ||
   e.method === 'Runtime.exceptionThrown' ||
   (e.method === 'Runtime.consoleAPICalled' && e.params.type === 'error')));
@@ -175,7 +173,7 @@ try {
   const viaApi = await api('GET', '/api/messages?app=wishing-well&audience=agents');
   check('note visible to agents', viaApi.messages.some((m) => m.body === note && m.audience === 'agents' && m.author.kind === 'human'));
 
-  // glimmer button: a brand-new human's glimmer is recorded, shown as given, and explains why it doesn't count yet
+  // glimmer button: a human's glimmer is recorded and shown as given
   await ev(`document.querySelector('[data-glimmer^="app:"]').click()`);
   let glim = {};
   for (let i = 0; i < 20 && !glim.pressed; i++) {
@@ -185,20 +183,15 @@ try {
         note: document.querySelector('[data-glimmer-note]').textContent }; })()`);
   }
   check('glimmer button gives', glim.pressed && glim.label === 'Glimmered', JSON.stringify(glim));
-  check('glimmer explains not-yet-counted', /day old/.test(glim.note || ''), JSON.stringify(glim));
-  check('spend buttons hidden from non-owners', await ev(`document.querySelector('[data-spend^="feature_app:"]').closest('.glimmer-row').classList.contains('hidden')`));
 
-  // the maker (house agent, if its seed key is on disk for this base) sees the feature button on its own charm
+  // the maker (house agent, if its seed key is on disk for this base) can undo vandalism from the charm page
   const { existsSync: ex, readFileSync: rd } = await import('node:fs');
   const seedKeyFile = new URL(`../.seed-key.${new URL(BASE).host.replace(/[^a-z0-9.-]/gi, '_')}`, import.meta.url);
   if (ex(seedKeyFile)) {
     const houseKey = rd(seedKeyFile, 'utf8').trim();
     const me = await (await fetch(`${BASE}/api/me`, { headers: { authorization: `Bearer ${houseKey}` } })).json();
     await ev(`localStorage.setItem('cn_key', ${JSON.stringify(houseKey)}); localStorage.setItem('cn_me', ${JSON.stringify(JSON.stringify(me.agent))}); true`);
-    await go(`${BASE}/a/wishing-well`);
-    check('owner sees feature button', await ev(`!document.querySelector('[data-spend^="feature_app:"]').closest('.glimmer-row').classList.contains('hidden')`));
-
-    // the maker undoes vandalism from the charm page (on a throwaway charm, so this is safe against production)
+    // on a throwaway charm, so this is safe against production
     const auth = { 'content-type': 'application/json', authorization: `Bearer ${houseKey}` };
     const tmp = await (await fetch(`${BASE}/api/apps`, { method: 'POST', headers: auth,
       body: JSON.stringify({ title: `Undo Check ${Date.now() % 100000}`, html: '<!doctype html><p>undo check</p>' }) })).json();
@@ -217,12 +210,7 @@ try {
       // both writes fall inside "last 10 minutes", so undo returns the key to before the window: it did not exist
       check('undo restores and says so', /Undid changes to 1 key: vase/.test(undoMsg) && vase.found === false, `${undoMsg} | ${JSON.stringify(vase)}`);
       await fetch(`${BASE}/api/apps/${us}`, { method: 'DELETE', headers: auth });
-      await go(`${BASE}/a/wishing-well`); // the feature-button check below runs on this page
     }
-    await ev(`document.querySelector('[data-spend^="feature_app:"]').click()`);
-    let msg = '';
-    for (let i = 0; i < 20 && !msg; i++) { await sleep(300); msg = await ev(`document.querySelector('[data-spend-note]').textContent`); }
-    check('feature button explains the price', /costs 10 glimmers|Spent 10/.test(msg), msg);
   }
   check('no errors in human flow', problems().length === 0, problems().map(describe).join(' | '));
 

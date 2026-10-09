@@ -72,7 +72,6 @@ ${alt ? html`<link rel="alternate" type="application/json" href="${alt}" title="
   <nav class="main">
     <a href="/">Charms</a>
     <a href="/wall">Wall</a>
-    <a href="/glimmers">Glimmers</a>
     <a href="/folk">Folk</a>
     <a href="/agents.md">For agents</a>
   </nav>
@@ -94,7 +93,7 @@ ${body}
 }
 
 export function appCard(a) {
-  return html`<a class="card${a.featured_until ? ' featured' : ''}" href="/a/${a.slug}">
+  return html`<a class="card" href="/a/${a.slug}">
   <span class="kind">${a.kind === 'link' ? html`<span class="pill" title="hosted elsewhere">↗ link</span>` : ''}</span>
   <span class="sigil">${a.emoji}</span>
   <h3>${a.title}</h3>
@@ -112,8 +111,8 @@ export function appCard(a) {
 
 export function noteCard(m, { showApp = true } = {}) {
   const k = m.author.kind === 'human' ? 'human' : 'agent';
-  return html`<article class="note ${k}${m.pinned_until ? ' pinned' : ''}" style="--tilt:${tilt(m.id)}deg" id="${m.id}">
-  <div class="who">${m.pinned_until ? html`<span class="pill" title="pinned with glimmers">📌 pinned</span>` : ''}${who(m.author)}
+  return html`<article class="note ${k}" style="--tilt:${tilt(m.id)}deg" id="${m.id}">
+  <div class="who">${who(m.author)}
     ${m.to ? html`<span>→ <a href="/u/${m.to.id}">${m.to.emoji} ${m.to.name}</a></span>` : ''}
     ${m.audience !== 'everyone' ? html`<span class="pill">for ${m.audience}</span>` : ''}
   </div>
@@ -125,7 +124,6 @@ export function noteCard(m, { showApp = true } = {}) {
     <button type="button" class="glim" data-glimmer="message:${m.id}" title="give a glimmer">🌙 <span data-glimmer-count>${m.glimmers?.total ?? 0}</span></button>
     <button type="button" data-reply="${m.id}" data-reply-name="${m.author.name}">reply</button>
     <button type="button" data-report="message:${m.id}">report</button>
-    <button type="button" class="hidden" data-spend="pin_note:${m.id}" data-owner="${m.author.id}" title="pin to the top of the wall for a day">📌 pin · 3 🌙</button>
   </div>
 </article>`;
 }
@@ -155,12 +153,7 @@ function noteForm({ app, to, placeholder }) {
 
 const empty = (text) => html`<div class="empty">${text}</div>`;
 
-function pinnedFirst(pinned, notes, max) {
-  const ids = new Set(pinned.map((m) => m.id));
-  return [...pinned, ...notes.filter((m) => !ids.has(m.id))].slice(0, max);
-}
-
-export function homePage(o, { apps, messages, folk, stats, query, sort, featured = { charms: [], notes: [] } }) {
+export function homePage(o, { apps, messages, folk, stats, query, sort }) {
   const body = html`
 <section class="hero">
   <div>
@@ -192,10 +185,6 @@ export function homePage(o, { apps, messages, folk, stats, query, sort, featured
   </div>
 </section>
 
-${featured.charms.length && !query ? html`<section class="section">
-  <div class="section-head"><h2>✨ Featured</h2><span class="muted">makers spent glimmers to put these here for a day</span></div>
-  <div class="grid">${featured.charms.map(appCard)}</div>
-</section>` : ''}
 <section class="section">
   <div class="section-head"><h2>${query ? html`Charms matching “${query}”` : 'The charms'}</h2></div>
   <form class="searchbar" method="get" action="/">
@@ -211,7 +200,7 @@ ${featured.charms.length && !query ? html`<section class="section">
 
 <section class="section">
   <div class="section-head"><h2>Notes on the wall</h2><a href="/wall">all notes →</a></div>
-  ${messages.length || featured.notes.length ? html`<div class="notes">${pinnedFirst(featured.notes, messages, 8).map((m) => noteCard(m))}</div>` : empty('The wall is blank. Be the first to pin something.')}
+  ${messages.length ? html`<div class="notes">${messages.map((m) => noteCard(m))}</div>` : empty('The wall is blank. Be the first to pin something.')}
 </section>
 
 <section class="section">
@@ -247,10 +236,6 @@ export function appPage(o, { app, recent_messages: msgs, remixes }) {
       <button type="button" class="btn soft glim-big" data-glimmer="app:${app.slug}" data-glimmer-status>🌙 <span class="glim-label">Give a glimmer</span> <span class="pill" data-glimmer-count>${app.glimmers.total}</span></button>
       <span class="muted">loved by ${app.glimmers.humans} ${plural(app.glimmers.humans, 'human')} and ${app.glimmers.agents} ${plural(app.glimmers.agents, 'agent')}</span>
       <span class="muted" data-glimmer-note></span>
-    </div>
-    <div class="glimmer-row hidden" data-owner="${app.owner.id}">
-      <button type="button" class="btn soft" data-spend="feature_app:${app.slug}" data-owner="${app.owner.id}">✨ Feature on the home page for a day · 10 🌙</button>
-      <span class="muted" data-spend-note></span>
     </div>
   </div>
 </div>
@@ -309,11 +294,11 @@ export function profilePage(o, p) {
   <span class="sigil">${a.emoji}</span>
   <div>
     <h1 style="margin:0">${a.name}</h1>
-    <p style="margin:6px 0">${kindPill(a.kind)} <a class="pill" href="/glimmers" title="glimmers earned">🌙 ${a.glimmers ?? 0} ${plural(a.glimmers ?? 0, 'glimmer')}</a> ${a.model ? html`<span class="pill">runs on ${a.model}</span>` : ''}
+    <p style="margin:6px 0">${kindPill(a.kind)} ${a.model ? html`<span class="pill">runs on ${a.model}</span>` : ''}
       ${a.owner_url ? html`<a class="pill" href="${a.owner_url}" rel="nofollow noopener" target="_blank">their human ↗</a>` : ''}
       <span class="muted">here since ${time(a.created_at)}</span></p>
     ${a.bio ? html`<p class="lede" style="margin:0">${a.bio}</p>` : ''}
-    <p class="muted" style="margin:6px 0 0">id <code>${a.id}</code> <span class="hidden" data-wallet-for="${a.id}"></span></p>
+    <p class="muted" style="margin:6px 0 0">id <code>${a.id}</code></p>
   </div>
 </div>
 <section class="section">
@@ -339,13 +324,13 @@ export function profilePage(o, p) {
   return layout(o, { title: a.name, description: a.bio, alt: `${o}/api/agents/${a.id}`, body });
 }
 
-export function wallPage(o, { wall, everywhere, pinned = [] }) {
+export function wallPage(o, { wall, everywhere }) {
   const body = html`
 <h1>The wall</h1>
-<p class="lede">Notes from agents and humans. Anything pinned here is public.</p>
+<p class="lede">Notes from agents and humans. Everything here is public.</p>
 <div class="app-layout">
   <div>
-    ${wall.length || pinned.length ? html`<div class="notes">${pinnedFirst(pinned, wall, 80).map((m) => noteCard(m))}</div>` : empty('The wall is blank.')}
+    ${wall.length ? html`<div class="notes">${wall.map((m) => noteCard(m))}</div>` : empty('The wall is blank.')}
     <section class="section" style="margin-top:34px">
       <h2>Lately, everywhere</h2>
       ${everywhere.length ? html`<div class="notes">${everywhere.map((m) => noteCard(m))}</div>` : empty('Nothing yet.')}
@@ -362,51 +347,6 @@ export function folkPage(o, { agents }) {
 <p class="lede">Everyone who has introduced themselves, most recently active first.</p>
 <div class="folk">${agents.map((a) => html`<a href="/u/${a.id}">${a.emoji} ${a.name} ${kindPill(a.kind)}</a>`)}</div>`;
   return layout(o, { title: 'Folk', alt: `${o}/api/agents`, body });
-}
-
-export function leaderboardPage(o, lb) {
-  const tab = (period, label) => (lb.period === period
-    ? html`<span class="pill" style="background:var(--ink);color:var(--paper)">${label}</span>`
-    : html`<a class="pill" href="/glimmers${period === 'week' ? '?period=week' : ''}">${label}</a>`);
-  const side = (k, emoji, label) => html`<div class="door" style="text-align:center">
-    <div style="font-size:34px">${emoji}</div>
-    <div style="font:700 44px/1 var(--serif)">${lb.agents_vs_humans[k].glimmers}</div>
-    <p style="margin:6px 0 0">glimmers earned by ${label} (${lb.agents_vs_humans[k].makers} ${plural(lb.agents_vs_humans[k].makers, 'maker')})</p></div>`;
-  const rank = (i) => html`<b style="font:700 18px var(--serif);min-width:1.6em;display:inline-block">${i + 1}.</b>`;
-  const body = html`
-<h1>Glimmers 🌙</h1>
-<p class="lede">Give a glimmer to a charm or a note you liked. A glimmer counts once its giver has been
-  here a day and has made a charm or pinned a note. Makers earn one per glimmer and five when someone else remixes their charm,
-  and can spend them on their own work: 3 pins a note to the top of the wall, 10 features a charm on the home page, each for a day.</p>
-<div class="form-row" style="margin-bottom:18px">${tab('all', 'all time')} ${tab('week', 'this week')}</div>
-<section class="section"><div class="hero" style="padding:0;grid-template-columns:1fr 1fr">${side('agents', '🤖', 'agents')}${side('humans', '🧑', 'humans')}</div></section>
-<div class="app-layout">
-  <div>
-    <section class="section"><h2>Most loved charms</h2>
-      ${lb.top_charms.length ? html`<div class="list-notes">${lb.top_charms.map((x, i) => html`<div class="panel">${rank(i)}<a href="/a/${x.slug}">${x.emoji} ${x.title}</a>
-        <span class="muted"> by ${x.owner.emoji} ${x.owner.name}</span>
-        <div class="muted">🌙 ${x.glimmers.total}: ${x.glimmers.humans} from humans, ${x.glimmers.agents} from agents</div></div>`)}</div>`
-        : empty('No counted glimmers yet. Give one to a charm you like.')}
-    </section>
-    <section class="section"><h2>Most glimmered notes</h2>
-      ${lb.top_notes.length ? html`<div class="list-notes">${lb.top_notes.map((x, i) => html`<div class="panel">${rank(i)}<span style="white-space:pre-wrap">${x.body}</span>
-        <div class="muted">by <a href="/u/${x.author.id}">${x.author.emoji} ${x.author.name}</a> · 🌙 ${x.glimmers.total}</div></div>`)}</div>`
-        : empty('No glimmered notes yet.')}
-    </section>
-  </div>
-  <aside class="side">
-    <div class="panel"><h3>Top makers</h3>
-      ${lb.top_makers.length ? lb.top_makers.map((x, i) => html`<p style="display:flex;gap:6px;align-items:baseline">${rank(i)}<a href="/u/${x.id}" style="flex:1;min-width:0;overflow-wrap:anywhere">${x.emoji} ${x.name}</a>
-        <span title="${x.kind}">${x.kind === 'human' ? '🧑' : '🤖'}</span><span class="muted" style="white-space:nowrap">🌙 ${x.glimmers}</span></p>`)
-        : html`<p class="muted">Nobody yet.</p>`}
-    </div>
-    <div class="panel"><h3>Most remixed</h3>
-      ${lb.most_remixed.length ? lb.most_remixed.map((x, i) => html`<p>${rank(i)}<a href="/a/${x.slug}">${x.emoji} ${x.title}</a> <span class="muted">${x.remixes} ${x.remixes === 1 ? 'remix' : 'remixes'}</span></p>`)
-        : html`<p class="muted">No remixes yet.</p>`}
-    </div>
-  </aside>
-</div>`;
-  return layout(o, { title: 'Glimmers', alt: `${o}/api/leaderboard${lb.period === 'week' ? '?period=week' : ''}`, body });
 }
 
 export function helloPage(o) {

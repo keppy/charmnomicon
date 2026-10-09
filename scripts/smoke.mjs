@@ -478,76 +478,40 @@ async function main() {
     await call('DELETE', `/api/messages/${bad.data.message.id}`, undefined, keyB);
   }
 
-  // glimmers 🌙
+  // glimmers 🌙 (a like: one per giver, never your own)
   {
-    const st = (path, key) => call('GET', path, undefined, key);
     check('glimmer needs key', (await call('POST', `/api/glimmers/app/${slug}`)).status === 401);
     check('no glimmer for own work', (await call('POST', `/api/glimmers/app/${slug}`, undefined, keyA)).status === 400);
     const g1 = await call('POST', `/api/glimmers/app/${slug}`, undefined, keyB);
-    check('new key glimmer recorded, not counted yet', g1.data.you?.given === true && g1.data.you.counted === false
-      && /day old/.test(g1.data.you.reason) && g1.data.glimmers.total === 0, JSON.stringify(g1.data));
+    check('glimmer counts at once', g1.data.you?.given === true && g1.data.glimmers.total === 1 && g1.data.glimmers.humans === 1,
+      JSON.stringify(g1.data));
     const c1 = await call('POST', '/api/agents', { name: `Smoke Crow ${tag}`, emoji: '🐦‍⬛' });
     const e1 = await call('POST', '/api/agents', { name: `Smoke Second Human ${tag}`, kind: 'human' });
     const keyC = c1.data.key;
     const keyE = e1.data.key;
     for (const x of [c1, e1]) if (x.data.agent) created.push(x.data.agent.id);
-    await call('POST', '/api/messages', { body: `crow was here ${tag}` }, keyC);
-    await call('POST', '/api/messages', { body: `second human was here ${tag}` }, keyE);
     await call('POST', `/api/glimmers/app/${slug}`, undefined, keyC);
-    await call('POST', `/api/glimmers/app/${slug}`, undefined, keyE);
+    const gE = await call('POST', `/api/glimmers/app/${slug}`, undefined, keyE);
+    check('humans and agents counted apart', gE.data.glimmers.total === 3 && gE.data.glimmers.humans === 2 && gE.data.glimmers.agents === 1,
+      JSON.stringify(gE.data.glimmers));
+    check('giving twice counts once', (await call('POST', `/api/glimmers/app/${slug}`, undefined, keyE)).data.glimmers.total === 3);
     await call('POST', `/api/glimmers/message/${m3.data.message.id}`, undefined, keyC);
-    if (/localhost|127\.0\.0\.1/.test(BASE)) {
-      // Age the test keys past a day so the counting rules can be exercised (local D1 only).
-      const { execSync } = await import('node:child_process');
-      const ids = [a.data.agent.id, b.data.agent.id, c1.data.agent.id, e1.data.agent.id].map((x) => `'${x}'`).join(',');
-      const cfg = process.env.CHARM_WRANGLER_CONFIG ? ` -c ${process.env.CHARM_WRANGLER_CONFIG}` : '';
-      execSync(`npx wrangler d1 execute charmnomicon --local${cfg} --command "UPDATE agents SET created_at = created_at - 172800 WHERE id IN (${ids})"`,
-        { stdio: 'ignore', shell: true });
-      const s = await st(`/api/glimmers/app/${slug}`, keyB);
-      check('counted: one human + one agent per connection', s.data.glimmers.humans === 1 && s.data.glimmers.agents === 1
-        && s.data.glimmers.total === 2, JSON.stringify(s.data.glimmers));
-      check('first human on the connection counts', s.data.you?.counted === true, JSON.stringify(s.data.you));
-      const sE = await st(`/api/glimmers/app/${slug}`, keyE);
-      check('second human on same connection does not', sE.data.you?.counted === false && /connection/.test(sE.data.you.reason), JSON.stringify(sE.data.you));
-      check('app record carries glimmers', (await call('GET', `/api/apps/${slug}`)).data.app.glimmers.total === 2);
-      check('listing carries glimmers', (await call('GET', `/api/apps?query=${tag}`)).data.apps.find((x) => x.slug === slug)?.glimmers.total === 2);
-      check('note glimmer counted', (await call('GET', `/api/messages?to=${a.data.agent.id}`)).data.messages.find((x) => x.id === m3.data.message.id)?.glimmers.total === 1);
-      const lb = await call('GET', '/api/leaderboard');
-      check('leaderboard top charm', lb.data.top_charms.some((x) => x.slug === slug && x.glimmers.total === 2), JSON.stringify(lb.data.top_charms).slice(0, 300));
-      const maker = lb.data.top_makers.find((x) => x.id === a.data.agent.id);
-      check('maker score = glimmers + 5 per remix', maker?.glimmers === 7 && maker.remixes === 1, JSON.stringify(maker));
-      check('agents vs humans tally', lb.data.agents_vs_humans.agents.glimmers >= 7 && lb.data.agents_vs_humans.humans.glimmers >= 1);
-      check('profile shows score', (await call('GET', `/api/agents/${a.data.agent.id}`)).data.agent.glimmers === 7);
-      const back = await call('DELETE', `/api/glimmers/app/${slug}`, undefined, keyC);
-      check('take back', back.data.glimmers.agents === 0 && back.data.you.given === false, JSON.stringify(back.data));
-      const mg = await mcp('tools/call', { name: 'give_glimmer', arguments: { type: 'app', id: slug, agent_key: keyC } });
-      check('mcp give_glimmer', mg.result?.structuredContent?.glimmers?.agents === 1, JSON.stringify(mg).slice(0, 300));
-      const ml = await mcp('tools/call', { name: 'leaderboard', arguments: { period: 'week' } });
-      check('mcp leaderboard', ml.result?.structuredContent?.period === 'week' && Array.isArray(ml.result.structuredContent.top_charms));
-      check('glimmers page', (await (await fetch(`${BASE}/glimmers`)).text()).includes(`Smoke Charm ${tag}`));
-
-      // spending: A earned 7 (2 counted glimmers + 5 for B's remix)
-      const w0 = await call('GET', '/api/me', undefined, keyA);
-      check('wallet', w0.data.glimmers?.earned === 7 && w0.data.glimmers.balance === 7 && w0.data.prices?.feature_app?.cost === 10, JSON.stringify(w0.data.glimmers));
-      const pin = await call('POST', '/api/glimmers/spend', { kind: 'pin_note', id: m4.data.message.id }, keyA);
-      check('pin own note', pin.status === 200 && pin.data.wallet.balance === 4, JSON.stringify(pin.data));
-      check('pin twice -> 409', (await call('POST', '/api/glimmers/spend', { kind: 'pin_note', id: m4.data.message.id }, keyA)).status === 409);
-      const feat = await call('POST', '/api/glimmers/spend', { kind: 'feature_app', id: slug }, keyA);
-      check('feature without enough -> 402', feat.status === 402 && feat.data.error.code === 'not_enough_glimmers', JSON.stringify(feat.data));
-      check('spend on others work -> 403', (await call('POST', '/api/glimmers/spend', { kind: 'pin_note', id: m4.data.message.id }, keyB)).status === 403);
-      const fd = await call('GET', '/api/featured');
-      check('featured feed lists the pin', fd.data.notes.some((x) => x.id === m4.data.message.id && x.pinned_until));
-      check('wall shows pinned note', (await (await fetch(`${BASE}/wall`)).text()).includes(`id="${m4.data.message.id}"`));
-      const ms = await mcp('tools/call', { name: 'spend_glimmers', arguments: { kind: 'pin_note', id: m3.data.message.id, agent_key: keyB } });
-      check('mcp spend_glimmers reports not enough', ms.result?.isError === true && ms.result.structuredContent.error.code === 'not_enough_glimmers', JSON.stringify(ms).slice(0, 300));
-    }
+    check('app record carries glimmers', (await call('GET', `/api/apps/${slug}`)).data.app.glimmers.total === 3);
+    check('listing carries glimmers', (await call('GET', `/api/apps?query=${tag}`)).data.apps.find((x) => x.slug === slug)?.glimmers.total === 3);
+    check('note glimmer counted', (await call('GET', `/api/messages?to=${a.data.agent.id}`)).data.messages.find((x) => x.id === m3.data.message.id)?.glimmers.total === 1);
+    const back = await call('DELETE', `/api/glimmers/app/${slug}`, undefined, keyC);
+    check('take back', back.data.glimmers.agents === 0 && back.data.you.given === false, JSON.stringify(back.data));
+    const mg = await mcp('tools/call', { name: 'give_glimmer', arguments: { type: 'app', id: slug, agent_key: keyC } });
+    check('mcp give_glimmer', mg.result?.structuredContent?.glimmers?.agents === 1, JSON.stringify(mg).slice(0, 300));
+    check('leaderboard and spending are gone', (await call('GET', '/api/leaderboard')).status === 404
+      && (await fetch(`${BASE}/glimmers`)).status === 404);
   }
 
   // reports + deletion
   check('report', (await call('POST', '/api/report', { type: 'message', id: m1.data.message.id, reason: 'smoke' })).data.reported?.id === m1.data.message.id);
   check('admin without token -> 403', (await call('POST', '/api/admin/moderate', { type: 'app', id: slug })).status === 403);
   check('delete own note', (await call('DELETE', `/api/messages/${m1.data.message.id}`, undefined, keyA)).status === 200);
-  // tidy the notes that outlive their app (and free any glimmer pin slot they hold)
+  // tidy the notes that outlive their app
   await call('DELETE', `/api/messages/${m4.data.message.id}`, undefined, keyA);
   await call('DELETE', `/api/messages/${m3.data.message.id}`, undefined, keyB);
   check('non-owner delete app -> 403', (await call('DELETE', `/api/apps/${slug}`, undefined, keyB)).status === 403);
