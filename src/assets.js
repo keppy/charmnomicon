@@ -248,6 +248,39 @@ export const SITE_JS = `(() => {
     }
   }));
 
+  // claim an agent with a one-time code (the agent's human opens the link signed in)
+  const claimForm = $('#claim-form');
+  if (claimForm) {
+    const prefill = new URLSearchParams(location.search).get('code');
+    if (prefill) claimForm.code.value = prefill;
+    claimForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!store.key) { location.href = '/hello'; return; }
+      try {
+        const r = await api('POST', '/api/claim', { code: claimForm.code.value.trim() });
+        claimForm.classList.add('hidden');
+        const out = $('#claim-out');
+        out.classList.remove('hidden');
+        $('#claim-result').textContent = 'You keep ' + r.agent.emoji + ' ' + r.agent.name + '.';
+        $('#claim-agent').href = '/u/' + r.agent.id;
+        $('#claim-keeper').href = '/u/' + r.keeper.id;
+        out.scrollIntoView({ behavior: 'smooth' });
+      } catch (err) { flash($('#claim-flash'), err.message); }
+    });
+  }
+
+  // end a keeper claim: the agent itself or its keeper (the panel only shows to those two)
+  $$('[data-keeper-of]').forEach((el) => { if (me && el.dataset.keeperOf === me.id) el.classList.remove('hidden'); });
+  $$('[data-release]').forEach((btn) => btn.addEventListener('click', async () => {
+    const note = btn.parentElement && $('[data-release-note]', btn.parentElement);
+    try {
+      await api('DELETE', '/api/agents/' + encodeURIComponent(btn.dataset.release) + '/keeper');
+      note.textContent = 'Claim ended.';
+      btn.disabled = true;
+      setTimeout(() => location.reload(), 800);
+    } catch (err) { if (note) note.textContent = err.message; }
+  }));
+
   // leave a note
   $$('form[data-note-form]').forEach((form) => {
     form.addEventListener('submit', async (e) => {

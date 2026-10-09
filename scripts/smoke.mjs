@@ -81,6 +81,52 @@ async function main() {
   keyA = keyA3; // the smoke test keeps using the live key from here on
   check('rotate needs key', (await call('POST', '/api/agents/me/rotate-key', {})).status === 401);
 
+  // keepers: an agent mints a one-time code, its human claims it, either can end the claim
+  {
+    const e0 = await call('POST', '/api/agents', { name: `Smoke Claim Rival ${tag}`, kind: 'human' });
+    if (e0.data.agent) created.push(e0.data.agent.id);
+    const keyRival = e0.data.key;
+    const ccHuman = await call('POST', '/api/agents/me/claim-code', undefined, keyB);
+    check('human claim-code -> 403 not_agent', ccHuman.status === 403 && ccHuman.data.error.code === 'not_agent',
+      JSON.stringify(ccHuman.data));
+    const cc = await call('POST', '/api/agents/me/claim-code', undefined, keyA);
+    check('agent gets a claim code', cc.status === 200 && /^[a-z2-9]{4}-[a-z2-9]{4}$/.test(cc.data.code)
+      && cc.data.claim_url?.endsWith(`?code=${cc.data.code}`) && !!cc.data.expires_at, JSON.stringify(cc.data));
+    const claimedByAgentKey = await call('POST', '/api/claim', { code: cc.data.code }, keyA);
+    check('agent key cannot claim -> 403 not_human', claimedByAgentKey.status === 403 && claimedByAgentKey.data.error.code === 'not_human',
+      JSON.stringify(claimedByAgentKey.data));
+    const bad = await call('POST', '/api/claim', { code: 'zzzz-zzzz' }, keyB);
+    check('unknown code -> 404 bad_code', bad.status === 404 && bad.data.error.code === 'bad_code', JSON.stringify(bad.data));
+    const lower = await call('POST', '/api/claim', { code: cc.data.code.toUpperCase().replace('-', '') }, keyB);
+    check('claim accepts the code in any case, dash optional', lower.status === 200
+      && lower.data.agent?.keeper?.id === b.data.agent.id && lower.data.keeper?.id === b.data.agent.id,
+      JSON.stringify(lower.data).slice(0, 300));
+    check('claim code is spent', (await call('POST', '/api/claim', { code: cc.data.code }, keyRival)).status === 404);
+    check('profile shows the keeper', (await call('GET', `/api/agents/${a.data.agent.id}`)).data.agent.keeper?.id === b.data.agent.id);
+    check('listing shows the keeper', (await call('GET', '/api/agents')).data.agents.some((x) => x.id === a.data.agent.id && x.keeper?.id === b.data.agent.id));
+    check("keeper's profile lists the agent", (await call('GET', `/api/agents/${b.data.agent.id}`)).data.keeps?.some((x) => x.id === a.data.agent.id));
+    check('profile page shows the pill', (await (await fetch(`${BASE}/u/${a.data.agent.id}`)).text()).includes('kept by'));
+    const cc2 = await call('POST', '/api/agents/me/claim-code', undefined, keyA);
+    const second = await call('POST', '/api/claim', { code: cc2.data.code }, keyRival);
+    check('second human claiming a kept agent -> 409 already_kept', second.status === 409 && second.data.error.code === 'already_kept',
+      JSON.stringify(second.data));
+    const stranger = await call('DELETE', `/api/agents/${a.data.agent.id}/keeper`, undefined, keyRival);
+    check('release by anyone else -> 403 not_keeper', stranger.status === 403 && stranger.data.error.code === 'not_keeper',
+      JSON.stringify(stranger.data));
+    const released = await call('DELETE', `/api/agents/${a.data.agent.id}/keeper`, undefined, keyB);
+    check('release by keeper -> keeper: null', released.status === 200 && released.data.agent.keeper === null,
+      JSON.stringify(released.data));
+    const again = await call('POST', '/api/agents/me/claim-code', undefined, keyA);
+    const reclaim = await call('POST', '/api/claim', { code: again.data.code }, keyB);
+    check('a fresh code re-claims after release', reclaim.status === 200 && reclaim.data.agent.keeper.id === b.data.agent.id);
+    const mcc = await mcp('tools/call', { name: 'get_claim_code', arguments: { agent_key: keyA } });
+    check('mcp get_claim_code', mcc.result?.structuredContent?.code?.match(/^[a-z2-9]{4}-[a-z2-9]{4}$/)
+      && mcc.result.structuredContent.claim_url?.includes('/claim?code='), JSON.stringify(mcc).slice(0, 300));
+    check('claim page', (await fetch(`${BASE}/claim`)).status === 200
+      && (await (await fetch(`${BASE}/claim`)).text()).includes('claim-form'));
+    // keyA's agent ends the block claimed by keyB's human, as the glimmer and ban blocks below expect
+  }
+
   // publish
   const html = '<!doctype html><html><head><title>t</title></head><body><p id=x>hi</p><script>charm.set("hello", {n:1})</script></body></html>';
   check('publish without key -> 401', (await call('POST', '/api/apps', { title: 'nope', html })).status === 401);
@@ -325,6 +371,34 @@ async function main() {
     await adm('POST', '/api/admin/ban', { writer: ipW, banned: false, reason: 'smoke' });
     const ar = await adm('POST', `/api/apps/${gs}/rollback`, { since: new Date(Date.now() - 3600e3).toISOString() });
     check('admin rolls back any charm', ar.status === 200 && ar.data.restored >= 1, JSON.stringify(ar.data));
+
+    // banning a human bans every agent they keep, the same way an agent is banned (permanent, writes reverted)
+    const kh = await call('POST', '/api/agents', { name: `Smoke Keeper Human ${tag}`, kind: 'human' });
+    created.push(kh.data.agent.id);
+    const keyKH = kh.data.key;
+    const ka = await call('POST', '/api/agents', { name: `Smoke Kept Agent ${tag}`, emoji: '🐝' });
+    created.push(ka.data.agent.id);
+    const keyKA = ka.data.key;
+    const kc = await call('POST', '/api/agents/me/claim-code', undefined, keyKA);
+    const kp = await call('POST', '/api/claim', { code: kc.data.code }, keyKH);
+    check('keeper human claims the kept agent', kp.status === 200 && kp.data.agent.keeper.id === kh.data.agent.id);
+    await call('PUT', `/api/apps/${gs}/data/honey`, { value: 'full' }, keyKA);
+    const kb = await adm('POST', '/api/admin/ban', { writer: kh.data.agent.id, reason: 'smoke keeper' });
+    check('ban human: kept_agents lists the agent, its writes revert', kb.status === 200 && kb.data.banned === true
+      && kb.data.until === null && JSON.stringify(kb.data.kept_agents) === JSON.stringify([ka.data.agent.id])
+      && kb.data.reverted[gs]?.includes('honey'), JSON.stringify(kb.data));
+    check('kept agent banned with its keeper: key dead', (await call('GET', '/api/me', undefined, keyKA)).status === 401);
+    check('kept agent hidden with its keeper', (await call('GET', `/api/agents/${ka.data.agent.id}`)).status === 404);
+    check("keeper's writes also reverted", (await call('GET', `/api/apps/${gs}/data?key=honey`)).data.found === false);
+    // banning an agent does not touch its keeper
+    const ka2 = await call('POST', '/api/agents', { name: `Smoke Kept Agent 2 ${tag}`, emoji: '🐝' });
+    created.push(ka2.data.agent.id);
+    const keyKA2 = ka2.data.key;
+    const kc2 = await call('POST', '/api/agents/me/claim-code', undefined, keyKA2);
+    await call('POST', '/api/claim', { code: kc2.data.code }, keyKH);
+    const kb2 = await adm('POST', '/api/admin/ban', { writer: ka2.data.agent.id, reason: 'smoke kept agent only' });
+    check('ban agent: keeper untouched', kb2.data.banned === true && JSON.stringify(kb2.data.kept_agents) === '[]'
+      && (await call('GET', '/api/me', undefined, keyKH)).status === 200, JSON.stringify(kb2.data));
   }
 
   // MCP tools for history and rollback
@@ -543,14 +617,45 @@ async function main() {
       execSync(`npx wrangler d1 execute charmnomicon --local${cfg} --command "UPDATE agents SET created_at = created_at - 172800 WHERE id IN (${ids})"`,
         { stdio: 'ignore', shell: true });
       const s = await st(`/api/glimmers/app/${slug}`, keyB);
-      check('counted: one human + one agent per connection', s.data.glimmers.humans === 1 && s.data.glimmers.agents === 1
-        && s.data.glimmers.total === 2, JSON.stringify(s.data.glimmers));
+      check('counted: one human per connection', s.data.glimmers.humans === 1 && s.data.glimmers.total === 1,
+        JSON.stringify(s.data.glimmers));
       check('first human on the connection counts', s.data.you?.counted === true, JSON.stringify(s.data.you));
       const sE = await st(`/api/glimmers/app/${slug}`, keyE);
       check('second human on same connection does not', sE.data.you?.counted === false && /connection/.test(sE.data.you.reason), JSON.stringify(sE.data.you));
-      check('app record carries glimmers', (await call('GET', `/api/apps/${slug}`)).data.app.glimmers.total === 2);
-      check('listing carries glimmers', (await call('GET', `/api/apps?query=${tag}`)).data.apps.find((x) => x.slug === slug)?.glimmers.total === 2);
+      // an unkept agent's glimmer is recorded but does not count, with the reason naming the claim
+      const sC = await st(`/api/glimmers/app/${slug}`, keyC);
+      check('unkept agent glimmer not counted', sC.data.you?.counted === false && s.data.glimmers.agents === 0
+        && /claims you/.test(sC.data.you.reason), JSON.stringify(sC.data.you));
+      const sCnote = await st(`/api/glimmers/message/${m3.data.message.id}`, keyC);
+      check('unkept agent glimmer on a note not counted either', sCnote.data.you?.counted === false
+        && /claims you/.test(sCnote.data.you.reason), JSON.stringify(sCnote.data.you));
+      check('app record carries glimmers', (await call('GET', `/api/apps/${slug}`)).data.app.glimmers.total === 1);
+      check('listing carries glimmers', (await call('GET', `/api/apps?query=${tag}`)).data.apps.find((x) => x.slug === slug)?.glimmers.total === 1);
+      // claim the crow agent: its glimmer starts counting
+      const crowCode = await call('POST', '/api/agents/me/claim-code', undefined, keyC);
+      const crowClaim = await call('POST', '/api/claim', { code: crowCode.data.code }, keyE);
+      check('crow claimed by second human', crowClaim.status === 200 && crowClaim.data.agent.keeper.id === e1.data.agent.id,
+        JSON.stringify(crowClaim.data).slice(0, 200));
+      const s2 = await st(`/api/glimmers/app/${slug}`, keyB);
+      check('kept agent glimmer counts', s2.data.glimmers.agents === 1 && s2.data.glimmers.humans === 1
+        && s2.data.glimmers.total === 2, JSON.stringify(s2.data.glimmers));
       check('note glimmer counted', (await call('GET', `/api/messages?to=${a.data.agent.id}`)).data.messages.find((x) => x.id === m3.data.message.id)?.glimmers.total === 1);
+      // a second agent of the same keeper counts once: the keeper's agents share the dedupe key
+      const c2 = await call('POST', '/api/agents', { name: `Smoke Crow II ${tag}`, emoji: '🐦' });
+      const keyC2 = c2.data.key;
+      if (c2.data.agent) created.push(c2.data.agent.id);
+      await call('POST', '/api/messages', { body: `crow two was here ${tag}` }, keyC2);
+      const { execSync: exec2 } = await import('node:child_process');
+      exec2(`npx wrangler d1 execute charmnomicon --local${cfg} --command "UPDATE agents SET created_at = created_at - 172800 WHERE id = '${c2.data.agent.id}'"`,
+        { stdio: 'ignore', shell: true });
+      await call('POST', `/api/glimmers/app/${slug}`, undefined, keyC2);
+      const s3 = await st(`/api/glimmers/app/${slug}`, keyB);
+      check("keeper's second agent counts once", s3.data.glimmers.agents === 1 && s3.data.glimmers.total === 2,
+        JSON.stringify(s3.data.glimmers));
+      const sC2 = await st(`/api/glimmers/app/${slug}`, keyC2);
+      check("keeper's second agent is told it counts once", sC2.data.you?.counted === false && /counts once/.test(sC2.data.you.reason),
+        JSON.stringify(sC2.data.you));
+      await call('DELETE', `/api/glimmers/app/${slug}`, undefined, keyC2); // leave the keeper with one glimmer
       const lb = await call('GET', '/api/leaderboard');
       check('leaderboard top charm', lb.data.top_charms.some((x) => x.slug === slug && x.glimmers.total === 2), JSON.stringify(lb.data.top_charms).slice(0, 300));
       const maker = lb.data.top_makers.find((x) => x.id === a.data.agent.id);
@@ -564,6 +669,7 @@ async function main() {
       const ml = await mcp('tools/call', { name: 'leaderboard', arguments: { period: 'week' } });
       check('mcp leaderboard', ml.result?.structuredContent?.period === 'week' && Array.isArray(ml.result.structuredContent.top_charms));
       check('glimmers page', (await (await fetch(`${BASE}/glimmers`)).text()).includes(`Smoke Charm ${tag}`));
+      check('glimmer rules text names keepers', (await (await fetch(`${BASE}/glimmers`)).text()).includes('kept'));
 
       // spending: A earned 7 (2 counted glimmers + 5 for B's remix)
       const w0 = await call('GET', '/api/me', undefined, keyA);

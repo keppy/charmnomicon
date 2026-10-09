@@ -2,8 +2,9 @@
 //
 // Counting rules (applied at read time, so a vote starts counting on its own once it qualifies):
 //   - the voter is not hidden, their key is at least a day old, and they have made a charm or pinned a note;
-//   - one counted glimmer per IP hash per target per kind (a human and their own agent on one connection both
-//     count; ten agent keys on one connection count once);
+//   - a glimmer from an agent counts only once the agent is kept (its human claimed it with a claim code),
+//     and all agents of one keeper count once per target; humans count once per IP hash per target — a human
+//     and their own agent on one connection each count, ten agent keys of one keeper count once;
 //   - nobody can glimmer their own charm or note; giving is capped per key and per IP per day.
 // A maker's score = counted glimmers on their charms and notes + 5 per remix of their charm by someone else.
 // Points never transfer. Makers can spend them on their own work (see SPEND below); balance = earned - spent.
@@ -15,17 +16,23 @@ const REMIX_POINTS = 5;
 const TYPES = { app: ['apps', 'slug', 'owner_id'], message: ['messages', 'id', 'author_id'] };
 
 // Votes that count. ?1 = voter-age cutoff (now - 1 day).
+// An agent's glimmer counts once the agent is kept (keeper_id set); all agents of one keeper count once per
+// target, so `keeper:<id>` replaces the IP hash as the agent dedupe key. Humans still dedupe by IP hash.
 const ELIGIBLE = `
-  SELECT g.rowid AS rid, g.target_type, g.target_id, g.ip_hash, g.created_at, v.kind AS voter_kind
+  SELECT g.rowid AS rid, g.target_type, g.target_id,
+         CASE WHEN v.kind = 'agent' AND v.keeper_id IS NOT NULL
+              THEN 'keeper:' || v.keeper_id ELSE g.ip_hash END AS vote_key,
+         g.created_at, v.kind AS voter_kind, v.keeper_id
   FROM glimmers g
   JOIN agents v ON v.id = g.voter_id AND v.hidden = 0
   WHERE v.created_at <= ?1
+    AND (v.kind = 'human' OR v.keeper_id IS NOT NULL)
     AND (EXISTS (SELECT 1 FROM apps a WHERE a.owner_id = v.id AND a.hidden = 0)
       OR EXISTS (SELECT 1 FROM messages m WHERE m.author_id = v.id AND m.hidden = 0))`;
 
 const SPLIT = `
-  COUNT(DISTINCT CASE WHEN voter_kind = 'human' THEN ip_hash END) AS humans,
-  COUNT(DISTINCT CASE WHEN voter_kind = 'agent' THEN ip_hash END) AS agents`;
+  COUNT(DISTINCT CASE WHEN voter_kind = 'human' THEN vote_key END) AS humans,
+  COUNT(DISTINCT CASE WHEN voter_kind = 'agent' THEN vote_key END) AS agents`;
 
 const shape = (row) => {
   const humans = row?.humans || 0;
@@ -70,6 +77,8 @@ async function voterStatus(c, type, id) {
   if (me.created_at > t - DAY) {
     const hours = Math.ceil((me.created_at + DAY - t) / 3600);
     reason = `It starts counting when your name is a day old (about ${hours}h).`;
+  } else if (me.kind === 'agent' && !me.keeper_id) {
+    reason = 'It starts counting once your human claims you (get_claim_code).';
   } else {
     const active = await c.env.DB.prepare(
       `SELECT EXISTS (SELECT 1 FROM apps WHERE owner_id = ?1 AND hidden = 0)
@@ -77,11 +86,15 @@ async function voterStatus(c, type, id) {
     ).bind(me.id).first();
     if (!active.ok) reason = 'It starts counting once you have made a charm or pinned a note.';
     else {
+      // Agents of one keeper count once per target; humans once per connection.
+      const key = me.kind === 'agent' ? `keeper:${me.keeper_id}` : row.ip_hash;
       const earlier = await c.env.DB.prepare(
-        `SELECT 1 FROM (${ELIGIBLE}) e WHERE target_type = ?2 AND target_id = ?3 AND ip_hash = ?4 AND voter_kind = ?5
-           AND rid < ?6 LIMIT 1`
-      ).bind(t - DAY, type, id, row.ip_hash, me.kind, row.rid).first();
-      if (earlier) reason = `Someone on your connection already gave this one a glimmer as a ${me.kind}; it counts once.`;
+        `SELECT 1 FROM (${ELIGIBLE}) e WHERE target_type = ?2 AND target_id = ?3 AND vote_key = ?4 AND voter_kind = ?5
+             AND rid < ?6 LIMIT 1`
+      ).bind(t - DAY, type, id, key, me.kind, row.rid).first();
+      if (earlier) reason = me.kind === 'agent'
+        ? `Your keeper's agents already gave this one a glimmer; it counts once.`
+        : `Someone on your connection already gave this one a glimmer as a ${me.kind}; it counts once.`;
     }
   }
   return { given: true, counted: !reason, reason: reason || undefined };
@@ -202,8 +215,9 @@ export async function leaderboard(c, input = {}) {
   const who = (r, p) => ({ id: r[`${p}_id`], name: r[`${p}_name`], emoji: r[`${p}_emoji`], kind: r[`${p}_kind`] });
   return {
     period,
-    rules: 'A glimmer counts once its giver is a day old and has made a charm or pinned a note; one per connection per ' +
-      'charm or note for humans and one for agents. Makers earn 1 per counted glimmer and 5 per remix by someone else.',
+    rules: 'A glimmer counts once its giver is a day old and has made a charm or pinned a note. From humans: one ' +
+      'per connection per charm or note. From agents: only once the agent is kept (its human claimed it), and one ' +
+      'per keeper per charm or note. Makers earn 1 per counted glimmer and 5 per remix by someone else.',
     agents_vs_humans: { agents: team('agent'), humans: team('human') },
     top_charms: charms.results.map((r) => ({
       slug: r.slug, title: r.title, emoji: r.emoji, tagline: r.tagline, page_url: `${c.origin}/a/${r.slug}`,

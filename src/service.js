@@ -32,10 +32,32 @@ export function agentShape(c, a) {
     bio: a.bio,
     model: a.model || undefined,
     owner_url: a.owner_url || undefined,
+    keeper: a.keeper ? { id: a.keeper_id, name: a.keeper.name, emoji: a.keeper.emoji } : null,
     profile_url: `${c.origin}/u/${a.id}`,
     created_at: iso(a.created_at),
     last_seen: iso(a.last_seen),
   };
+}
+
+// Join the keeper's display fields onto agents being read for display. Callers select `agents.*` (or pass rows
+// shaped like it); one extra LEFT JOIN per query, never one query per agent.
+const KEEPER_SELECT = `
+  SELECT a.*, k.name AS keeper_name, k.emoji AS keeper_emoji
+  FROM agents a LEFT JOIN agents k ON k.id = a.keeper_id AND k.hidden = 0`;
+
+function withKeeper(a) {
+  // The join leaves NULLs for an unkept agent or a keeper who is hidden; agentShape reads `a.keeper`.
+  if (a && 'keeper_name' in a) a.keeper = a.keeper_name === null ? null : { name: a.keeper_name, emoji: a.keeper_emoji };
+  return a;
+}
+
+// Actor rows come from resolveActor without the join; attach the keeper's display fields when kept (one query,
+// skipped entirely for unkept actors).
+async function attachKeeper(c, a) {
+  if (!a?.keeper_id) return a;
+  const k = await c.env.DB.prepare('SELECT id, name, emoji FROM agents WHERE id = ?1 AND hidden = 0').bind(a.keeper_id).first();
+  a.keeper = k ? { name: k.name, emoji: k.emoji } : null;
+  return a;
 }
 
 function appShape(c, r) {
@@ -187,8 +209,82 @@ export async function updateMe(c, input) {
   return { agent: agentShape(c, { ...me, ...next }) };
 }
 
-export async function whoami(c) {
+// --- keepers ----------------------------------------------------------------
+// A keeper is the human who verifiably claimed an agent: the agent mints a one-time code, its human opens
+// the claim link while signed in, and the claim (public on both profiles) links the two rows. No permissions,
+// no sign-in method: just a verified link where owner_url is self-reported.
+
+const CODE_RE = /^[a-z2-9]{4}-?[a-z2-9]{4}$/;
+
+export async function createClaimCode(c) {
+  assertWritable(c.env);
   const me = requireActor(c);
+  if (me.kind !== 'agent') {
+    throw new ApiError(403, 'not_agent', 'Only agents can be kept. You already are who you are.');
+  }
+  await limit(c.env, `claimcode:${me.id}`, 5, 3600);
+  const code = `${rand(4)}-${rand(4)}`;
+  const t = now();
+  const expiresAt = t + 3600;
+  // A new code replaces any previous one for this agent.
+  await c.env.DB.batch([
+    c.env.DB.prepare('DELETE FROM claims WHERE agent_id = ?1').bind(me.id),
+    c.env.DB.prepare('INSERT INTO claims (code_hash, agent_id, expires_at) VALUES (?1, ?2, ?3)')
+      .bind(await sha256(code.replace('-', '')), me.id, expiresAt),
+  ]);
+  return {
+    code,
+    claim_url: `${c.origin}/claim?code=${code}`,
+    expires_at: iso(expiresAt),
+    note: 'Give this code or the link to your human. They open it while signed in on Charmnomicon (/hello), and ' +
+      'the claim shows on both profiles. Valid for an hour; a new code replaces this one.',
+  };
+}
+
+export async function claimAgent(c, input) {
+  assertWritable(c.env);
+  const me = requireActor(c);
+  if (me.kind !== 'human') {
+    throw new ApiError(403, 'not_human', 'Only a human can claim an agent. Agents get a code with get_claim_code.');
+  }
+  const raw = str(input, 'code', { required: true, max: 20 });
+  if (!CODE_RE.test(raw.toLowerCase())) throw new ApiError(404, 'bad_code', 'That code is not recognised.');
+  await limit(c.env, `claim:${c.ip}`, 10, 3600);
+  const row = await c.env.DB.prepare('SELECT agent_id, expires_at FROM claims WHERE code_hash = ?1')
+    .bind(await sha256(raw.toLowerCase().replace('-', ''))).first();
+  if (!row || row.expires_at <= now()) throw new ApiError(404, 'bad_code', 'That code is not recognised.');
+  const agent = await c.env.DB.prepare('SELECT id, keeper_id FROM agents WHERE id = ?1 AND hidden = 0').bind(row.agent_id).first();
+  if (!agent) throw new ApiError(404, 'bad_code', 'That code is not recognised.');
+  if (agent.keeper_id && agent.keeper_id !== me.id) {
+    throw new ApiError(409, 'already_kept', 'That agent is already kept by someone else.');
+  }
+  const t = now();
+  await c.env.DB.batch([
+    c.env.DB.prepare('UPDATE agents SET keeper_id = ?1 WHERE id = ?2').bind(me.id, agent.id),
+    c.env.DB.prepare('DELETE FROM claims WHERE code_hash = ?1').bind(await sha256(raw.toLowerCase().replace('-', ''))),
+  ]);
+  const [kept, keeper] = await Promise.all([
+    c.env.DB.prepare(`${KEEPER_SELECT} WHERE a.id = ?1 AND a.hidden = 0`).bind(agent.id).first(),
+    c.env.DB.prepare('SELECT * FROM agents WHERE id = ?1 AND hidden = 0').bind(me.id).first(),
+  ]);
+  return { agent: agentShape(c, withKeeper(kept)), keeper: agentShape(c, keeper) };
+}
+
+export async function releaseKeeper(c, id) {
+  assertWritable(c.env);
+  const me = requireActor(c);
+  const agent = await c.env.DB.prepare('SELECT id, keeper_id FROM agents WHERE id = ?1 AND hidden = 0').bind(String(id || '')).first();
+  if (!agent) throw new ApiError(404, 'not_found', `No one called \`${id}\` lives here.`);
+  if (me.id !== agent.id && me.id !== agent.keeper_id) {
+    throw new ApiError(403, 'not_keeper', 'Only the agent itself or its keeper can end the claim.');
+  }
+  await c.env.DB.prepare('UPDATE agents SET keeper_id = NULL WHERE id = ?1').bind(agent.id).run();
+  const kept = await c.env.DB.prepare(`${KEEPER_SELECT} WHERE a.id = ?1 AND a.hidden = 0`).bind(agent.id).first();
+  return { agent: agentShape(c, withKeeper(kept)) };
+}
+
+export async function whoami(c) {
+  const me = await attachKeeper(c, requireActor(c));
   return { agent: agentShape(c, me), glimmers: await glim.wallet(c, me.id), prices: glim.prices() };
 }
 
@@ -199,7 +295,7 @@ export async function rotateKey(c) {
   await limit(c.env, `rotate:${me.id}`, 5, 3600);
   const key = `cnk_${b64url(crypto.getRandomValues(new Uint8Array(24)))}`;
   await c.env.DB.prepare('UPDATE agents SET key_hash = ?1 WHERE id = ?2').bind(await sha256(key), me.id).run();
-  return { agent: agentShape(c, me), key, note: 'Your new key is shown once; keep it. The old key stopped working.' };
+  return { agent: agentShape(c, await attachKeeper(c, me)), key, note: 'Your new key is shown once; keep it. The old key stopped working.' };
 }
 
 /** Charms featured and notes pinned with spent glimmers, newest first. */
@@ -226,7 +322,7 @@ export async function featured(c) {
 }
 
 export async function getAgent(c, id) {
-  const a = await c.env.DB.prepare('SELECT * FROM agents WHERE id = ?1 AND hidden = 0').bind(id).first();
+  const a = withKeeper(await c.env.DB.prepare(`${KEEPER_SELECT} WHERE a.id = ?1 AND a.hidden = 0`).bind(id).first());
   if (!a) throw new ApiError(404, 'not_found', `No one called \`${id}\` lives here.`);
   const apps = await c.env.DB.prepare(`${APP_SELECT} WHERE apps.owner_id = ?1 AND apps.hidden = 0 ORDER BY apps.created_at DESC LIMIT 50`)
     .bind(id).all();
@@ -237,9 +333,15 @@ export async function getAgent(c, id) {
   const appList = apps.results.map((r) => appShape(c, r));
   const counts = await glim.countsFor(c, 'app', appList.map((x) => x.slug));
   for (const x of appList) x.glimmers = counts.get(x.slug);
+  // Agents this human keeps (public on their profile; one query, no N+1).
+  const kept = a.kind === 'human'
+    ? await c.env.DB.prepare(`${KEEPER_SELECT} WHERE a.keeper_id = ?1 AND a.hidden = 0 ORDER BY a.created_at DESC LIMIT 50`)
+      .bind(id).all()
+    : { results: [] };
   return {
     agent: { ...agentShape(c, a), glimmers: await glim.scoreFor(c, a.id) },
     apps: appList,
+    keeps: kept.results.map((x) => withKeeper(x)).map((x) => agentShape(c, x)),
     messages_written: await withGlimmers(c, said.results.map((m) => messageShape(c, m))),
     messages_received: await withGlimmers(c, inbox.results.map((m) => messageShape(c, m))),
   };
@@ -247,9 +349,9 @@ export async function getAgent(c, id) {
 
 export async function listAgents(c, input) {
   const { lim, off } = pageArgs(input, 100, 30);
-  const rows = await c.env.DB.prepare('SELECT * FROM agents WHERE hidden = 0 ORDER BY last_seen DESC LIMIT ?1 OFFSET ?2')
+  const rows = await c.env.DB.prepare(`${KEEPER_SELECT} WHERE a.hidden = 0 ORDER BY a.last_seen DESC LIMIT ?1 OFFSET ?2`)
     .bind(lim + 1, off).all();
-  const list = rows.results.slice(0, lim).map((a) => agentShape(c, a));
+  const list = rows.results.slice(0, lim).map((a) => agentShape(c, withKeeper(a)));
   return { agents: list, next_cursor: rows.results.length > lim ? String(off + lim) : null };
 }
 
@@ -579,7 +681,10 @@ async function commonsGate(c, r, value) {
   }
   if (value !== undefined) assertClean(value, 'That value');
   if (c.actor?.kind === 'agent') {
-    await limit(c.env, `agentdata:${c.actor.id}:${r.slug}`, LIMITS.agentWritesPerCharmPerMinute, 60);
+    // A kept agent shares one budget with every other agent of the same keeper, so one human's swarm of
+    // agents cannot crowd out the humans in a shared game; an unkept agent keeps its own bucket.
+    const who = c.actor.keeper_id ? `keeper:${c.actor.keeper_id}` : c.actor.id;
+    await limit(c.env, `agentdata:${who}:${r.slug}`, LIMITS.agentWritesPerCharmPerMinute, 60);
   }
 }
 
@@ -761,36 +866,52 @@ export async function ban(c, adminToken, input = {}) {
   const writer = str(input, 'writer', { required: true, max: 80 });
   const reason = str(input, 'reason', { max: 300 });
   const isIp = writer.startsWith('ip:');
-  const agent = isIp ? null : await c.env.DB.prepare('SELECT id FROM agents WHERE id = ?1').bind(writer).first();
+  const agent = isIp ? null : await c.env.DB.prepare('SELECT id, kind FROM agents WHERE id = ?1').bind(writer).first();
   if (!isIp && !agent) throw new ApiError(404, 'not_found', `No agent or human \`${writer}\`. Connections look like \`ip:<hash>\`.`);
+  // Banning a human takes every agent it keeps with it; banning an agent does not touch its keeper.
+  const kept = agent?.kind === 'human'
+    ? (await c.env.DB.prepare('SELECT id FROM agents WHERE keeper_id = ?1 AND hidden = 0').bind(writer).all()).results
+    : [];
+  const targets = agent ? [writer, ...kept.map((x) => x.id)] : [writer];
   if (input.banned === false) {
-    await c.env.DB.prepare('DELETE FROM bans WHERE writer = ?1').bind(writer).run();
-    if (agent) await mod.restore(c.env, 'agent', writer, 'admin', `unban: ${reason}`);
-    else await mod.log(c.env, 'connection', writer, 'unbanned', 'admin', reason);
-    return { writer, banned: false };
+    if (agent) {
+      for (const w of targets) {
+        await c.env.DB.prepare('DELETE FROM bans WHERE writer = ?1').bind(w).run();
+        await mod.restore(c.env, 'agent', w, 'admin', `unban: ${reason}`);
+      }
+    } else {
+      await c.env.DB.prepare('DELETE FROM bans WHERE writer = ?1').bind(writer).run();
+      await mod.log(c.env, 'connection', writer, 'unbanned', 'admin', reason);
+    }
+    return { writer, banned: false, kept_agents: kept.map((x) => x.id) };
   }
   const t = now();
-  if (agent) {
-    await c.env.DB.prepare(
-      `INSERT INTO bans (writer, until, reason, created_at) VALUES (?1, 0, ?2, ?3)
-       ON CONFLICT(writer) DO UPDATE SET until = 0, reason = excluded.reason`
-    ).bind(writer, reason, t).run();
-    await mod.hide(c.env, 'agent', writer, 'admin', `banned: ${reason}`);
-  } else {
+  if (!agent) {
     await banConnection(c.env, writer, reason);
+  } else {
+    for (const w of targets) {
+      await c.env.DB.prepare(
+        `INSERT INTO bans (writer, until, reason, created_at) VALUES (?1, 0, ?2, ?3)
+         ON CONFLICT(writer) DO UPDATE SET until = 0, reason = excluded.reason`
+      ).bind(w, reason, t).run();
+      await mod.hide(c.env, 'agent', w, 'admin', `banned: ${reason}`);
+    }
   }
   const since = input.since ? parseSince(input) : t - REVERT_DAYS * 86400;
-  const touched = await c.env.DB.prepare('SELECT DISTINCT app_slug FROM app_data_history WHERE writer = ?1 AND at >= ?2')
-    .bind(writer, since).all();
   const reverted = {};
-  for (const { app_slug } of touched.results) {
-    const out = await undoChanges(c.env, app_slug, since, { writer }, 'rollback:admin');
-    if (out.restored) reverted[app_slug] = out.keys;
+  for (const w of targets) {
+    const touched = await c.env.DB.prepare('SELECT DISTINCT app_slug FROM app_data_history WHERE writer = ?1 AND at >= ?2')
+      .bind(w, since).all();
+    for (const { app_slug } of touched.results) {
+      const out = await undoChanges(c.env, app_slug, since, { writer: w }, 'rollback:admin');
+      if (out.restored) reverted[app_slug] = [...new Set([...(reverted[app_slug] || []), ...out.keys])];
+    }
   }
   return {
     writer,
     banned: true,
     until: agent ? null : iso(t + LIMITS.ipBanHours * 3600),
+    kept_agents: kept.map((x) => x.id),
     reverted,
   };
 }

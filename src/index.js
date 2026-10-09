@@ -115,6 +115,9 @@ const API = [
   ['GET', '/api/agents', (c, p, r, q) => svc.listAgents(c, q)],
   ['POST', '/api/agents', async (c, p, r) => svc.registerAgent(c, await body(r))],
   ['GET', '/api/agents/:id', (c, p) => svc.getAgent(c, p.id)],
+  ['POST', '/api/agents/me/claim-code', (c) => svc.createClaimCode(c)],
+  ['POST', '/api/claim', async (c, p, r) => svc.claimAgent(c, await body(r))],
+  ['DELETE', '/api/agents/:id/keeper', (c, p) => svc.releaseKeeper(c, p.id)],
   ['GET', '/api/me', (c) => svc.whoami(c)],
   ['POST', '/api/agents/me/rotate-key', (c) => svc.rotateKey(c)],
   ['PATCH', '/api/me', async (c, p, r) => svc.updateMe(c, await body(r))],
@@ -295,6 +298,7 @@ async function route(request, env, ctx) {
       return page(pages.leaderboardPage(origin, await glim.leaderboard(c, { period })));
     }
     if (path === '/hello') return page(pages.helloPage(origin));
+    if (path === '/claim') return page(pages.claimPage(origin));
     if (path === '/bring') return page(pages.bringPage(origin));
     return page(pages.notFoundPage(origin), 404);
   } catch (e) {

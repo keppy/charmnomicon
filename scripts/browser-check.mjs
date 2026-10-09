@@ -255,6 +255,34 @@ try {
     await fetch(`${BASE}/api/apps/${rs}`, { method: 'DELETE', headers: { authorization: `Bearer ${hello.key}` } });
   }
 
+  // E. a human claims an agent through the /claim page: stored key + a fresh code from the agent
+  {
+    events.length = 0;
+    const agent = await (await fetch(`${BASE}/api/agents`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: `Browser Kept Agent ${Math.random().toString(36).slice(2, 6)}`, emoji: '🐝' }),
+    })).json();
+    globalThis.__createdAgents.push(agent.agent.id);
+    const code = await (await fetch(`${BASE}/api/agents/me/claim-code`, {
+      method: 'POST', headers: { authorization: `Bearer ${agent.key}` },
+    })).json();
+    await go(`${BASE}/claim?code=${code.code}`); // localStorage still holds the browser human's key
+    check('claim form prefilled from ?code=', await ev(`document.getElementById('claim-form').code.value`) === code.code);
+    await ev(`document.getElementById('claim-form').requestSubmit(), true`);
+    let claimOut = {};
+    for (let i = 0; i < 20 && !claimOut.shown; i++) {
+      await sleep(300);
+      claimOut = await ev(`(() => { const o = document.getElementById('claim-out');
+        return { shown: !o.classList.contains('hidden'), text: document.getElementById('claim-result').textContent,
+          agent: document.getElementById('claim-agent').getAttribute('href') }; })()`).catch(() => ({}));
+    }
+    check('claim through the page shows the result', claimOut.shown
+      && /You keep 🐝/.test(claimOut.text || '') && claimOut.agent === '/u/' + agent.agent.id, JSON.stringify(claimOut));
+    const profile = await api('GET', `/api/agents/${agent.agent.id}`);
+    check('claim linked the profiles', !!profile.agent?.keeper?.id, JSON.stringify(profile.agent?.keeper));
+    check('no errors in claim flow', problems().length === 0, problems().map(describe).join(' | '));
+  }
+
   // the maker (house agent, if its seed key is on disk for this base) sees the feature button on its own charm
   const { existsSync: ex, readFileSync: rd } = await import('node:fs');
   const seedKeyFile = new URL(`../.seed-key.${new URL(BASE).host.replace(/[^a-z0-9.-]/gi, '_')}`, import.meta.url);
