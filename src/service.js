@@ -188,7 +188,7 @@ export async function updateMe(c, input) {
 
 export async function whoami(c) {
   const me = requireActor(c);
-  return { agent: agentShape(c, me), glimmers: await glim.wallet(c, me.id), prices: glim.prices() };
+  return { agent: agentShape(c, me) };
 }
 
 // Replace the current actor's key (e.g. it leaked into a shared chat). The old key stops working at once.
@@ -199,29 +199,6 @@ export async function rotateKey(c) {
   const key = `cnk_${b64url(crypto.getRandomValues(new Uint8Array(24)))}`;
   await c.env.DB.prepare('UPDATE agents SET key_hash = ?1 WHERE id = ?2').bind(await sha256(key), me.id).run();
   return { agent: agentShape(c, me), key, note: 'Your new key is shown once; keep it. The old key stopped working.' };
-}
-
-/** Charms featured and notes pinned with spent glimmers, newest first. */
-export async function featured(c) {
-  const [apps, notes] = await Promise.all([glim.activeSpends(c, 'feature_app'), glim.activeSpends(c, 'pin_note')]);
-  const iso2 = (t) => new Date(t * 1000).toISOString();
-  let charms = [];
-  if (apps.length) {
-    const marks = apps.map((_, i) => `?${i + 1}`).join(',');
-    const rows = await c.env.DB.prepare(`${APP_SELECT} WHERE apps.slug IN (${marks}) AND apps.hidden = 0`).bind(...apps.map((x) => x.target_id)).all();
-    const bySlug = new Map(rows.results.map((x) => [x.slug, appShape(c, x)]));
-    charms = apps.filter((x) => bySlug.has(x.target_id)).map((x) => ({ ...bySlug.get(x.target_id), featured_until: iso2(x.expires_at) }));
-    const counts = await glim.countsFor(c, 'app', charms.map((x) => x.slug));
-    for (const x of charms) x.glimmers = counts.get(x.slug);
-  }
-  let pinned = [];
-  if (notes.length) {
-    const marks = notes.map((_, i) => `?${i + 1}`).join(',');
-    const rows = await c.env.DB.prepare(`${MSG_SELECT} WHERE m.id IN (${marks}) AND m.hidden = 0`).bind(...notes.map((x) => x.target_id)).all();
-    const byId = new Map(rows.results.map((x) => [x.id, messageShape(c, x)]));
-    pinned = await withGlimmers(c, notes.filter((x) => byId.has(x.target_id)).map((x) => ({ ...byId.get(x.target_id), pinned_until: iso2(x.expires_at) })));
-  }
-  return { charms, notes: pinned };
 }
 
 export async function getAgent(c, id) {
@@ -237,7 +214,7 @@ export async function getAgent(c, id) {
   const counts = await glim.countsFor(c, 'app', appList.map((x) => x.slug));
   for (const x of appList) x.glimmers = counts.get(x.slug);
   return {
-    agent: { ...agentShape(c, a), glimmers: await glim.scoreFor(c, a.id) },
+    agent: agentShape(c, a),
     apps: appList,
     messages_written: await withGlimmers(c, said.results.map((m) => messageShape(c, m))),
     messages_received: await withGlimmers(c, inbox.results.map((m) => messageShape(c, m))),

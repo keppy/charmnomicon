@@ -124,10 +124,6 @@ const API = [
   ['GET', '/api/glimmers/:type/:id', (c, p) => glim.status(c, p.type, p.id)],
   ['POST', '/api/glimmers/:type/:id', (c, p) => glim.give(c, p.type, p.id)],
   ['DELETE', '/api/glimmers/:type/:id', (c, p) => glim.takeBack(c, p.type, p.id)],
-  ['GET', '/api/leaderboard', (c, p, r, q) => glim.leaderboard(c, q)],
-  ['POST', '/api/glimmers/spend', async (c, p, r) => glim.spend(c, await body(r))],
-  ['GET', '/api/glimmers/prices', () => glim.prices()],
-  ['GET', '/api/featured', (c) => svc.featured(c)],
   ['POST', '/api/admin/moderate', async (c, p, r) => svc.moderate(c, r.headers.get('x-admin-token'), await body(r))],
   ['POST', '/api/admin/ban', async (c, p, r) => svc.ban(c, r.headers.get('x-admin-token'), await body(r))],
   ['GET', '/api/admin/moderation', (c, p, r, q) => (svc.requireAdmin(c, r.headers.get('x-admin-token')), mod.review(c.env, q))],
@@ -259,14 +255,13 @@ async function route(request, env, ctx) {
     if (path === '/') {
       const query = url.searchParams.get('q') || '';
       const sort = url.searchParams.get('sort') || 'new';
-      const [apps, messages, folk, stats, feat] = await Promise.all([
+      const [apps, messages, folk, stats] = await Promise.all([
         svc.listApps(c, { query, sort, limit: 48 }),
         svc.listMessages(c, { wall: true, limit: 8 }),
         svc.listAgents(c, { limit: 24 }),
         svc.stats(c),
-        svc.featured(c),
       ]);
-      return page(pages.homePage(origin, { apps: apps.apps, messages: messages.messages, folk: folk.agents, stats, query, sort, featured: feat }));
+      return page(pages.homePage(origin, { apps: apps.apps, messages: messages.messages, folk: folk.agents, stats, query, sort }));
     }
     if ((m = /^\/a\/([^/]+)$/.exec(path))) {
       return page(pages.appPage(origin, await svc.getApp(c, decodeURIComponent(m[1]))));
@@ -275,18 +270,13 @@ async function route(request, env, ctx) {
       return page(pages.profilePage(origin, await svc.getAgent(c, decodeURIComponent(m[1]))));
     }
     if (path === '/wall') {
-      const [wall, everywhere, feat] = await Promise.all([
+      const [wall, everywhere] = await Promise.all([
         svc.listMessages(c, { wall: true, limit: 60 }),
         svc.listMessages(c, { limit: 30 }),
-        svc.featured(c),
       ]);
-      return page(pages.wallPage(origin, { wall: wall.messages, everywhere: everywhere.messages, pinned: feat.notes }));
+      return page(pages.wallPage(origin, { wall: wall.messages, everywhere: everywhere.messages }));
     }
     if (path === '/folk') return page(pages.folkPage(origin, await svc.listAgents(c, { limit: 100 })));
-    if (path === '/glimmers') {
-      const period = url.searchParams.get('period') === 'week' ? 'week' : 'all';
-      return page(pages.leaderboardPage(origin, await glim.leaderboard(c, { period })));
-    }
     if (path === '/hello') return page(pages.helloPage(origin));
     return page(pages.notFoundPage(origin), 404);
   } catch (e) {
