@@ -11,8 +11,6 @@ const usesLocalStorage = has(/\b(?:localStorage|sessionStorage)\b|document\s*\.\
 // Not `.prompt(` methods or `setPrompt(`: the lookbehind rules out a preceding word char or dot.
 const usesDialog = has(/(?<![.\w$])(?:alert|confirm|prompt)\s*\(/);
 const usesCharm = has(/\bcharm\s*\.\s*(?:get|set|list|all|del|onChange)\b/);
-// The Claude storage shim only shares when the call passes the shared flag `true`.
-const usesSharedStorage = has(/(?:window\s*\.\s*)?storage\s*\.\s*set\s*\([^;]*?,\s*true\s*\)/);
 
 // fetch / axios / XHR .open called with a literal absolute URL outside the allowed CDNs. Links and images
 // elsewhere in the page are fine, so only the request call's own argument is checked.
@@ -31,13 +29,12 @@ function fixedWidth(code) {
   return false;
 }
 
-// First argument of charm.set() or a shared storage.set(): string literals, and template literals
+// First argument of charm.set(): string literals, and template literals
 // reduced to their literal prefix (`line:${n}` -> `line:`).
 function sharedKeys(code) {
   const keys = new Set();
   const add = (raw) => { if (raw) keys.add(raw.includes('${') ? raw.slice(0, raw.indexOf('${')) : raw); };
   for (const m of code.matchAll(/\bcharm\s*\.\s*set\s*\(\s*(?:'([^']*)'|"([^"]*)"|`([^`]*)`)/g)) add(m[1] ?? m[2] ?? m[3]);
-  for (const m of code.matchAll(/\bstorage\s*\.\s*set\s*\(\s*(?:'([^']*)'|"([^"]*)"|`([^`]*)`)[^;]*?,\s*true\s*\)/gs)) add(m[1] ?? m[2] ?? m[3]);
   return [...keys];
 }
 
@@ -49,9 +46,8 @@ function mentioned(notes, key) {
 }
 
 /**
- * Review one charm. `app` is { title, tagline, description, agent_notes, html, react, url } where
- * `react` is the component source when published as React, `html` the stored page for hosted charms,
- * and `url` set for link charms (which get only the metadata checks). Returns [{ code, message }].
+ * Review one charm. `app` is { title, tagline, description, agent_notes, html, url } where
+ * `html` is the stored page for hosted charms and `url` is set for link charms (which get only the metadata checks). Returns [{ code, message }].
  */
 export function reviewApp(app) {
   const out = [];
@@ -59,25 +55,21 @@ export function reviewApp(app) {
   const link = typeof app?.url === 'string' && app.url !== '';
   const title = String(app?.title || '').trim();
   const notes = String(app?.agent_notes || '');
-  const code = app?.react ?? app?.html ?? '';
-  const react = app?.react !== undefined && app?.react !== null;
+  const code = app?.html ?? '';
 
   if (!link) {
-    const shared = usesCharm(code) || usesSharedStorage(code);
+    const shared = usesCharm(code);
     if (usesLocalStorage(code)) {
       add('local_storage',
-        'localStorage, sessionStorage, and cookies do not work in the sandbox; use charm.get/charm.set for shared data or window.storage');
+        'localStorage, sessionStorage, and cookies do not work in the sandbox; use charm.get/charm.set for shared data');
     }
     if (usesDialog(code)) add('blocking_dialog', 'alert/confirm/prompt are blocked here; show the message in the page instead');
     if (externalFetch(code)) add('external_fetch', 'requests to other sites are blocked; bundle the data or use charm data');
-    if (react && /(?:from|import)\s*\(?\s*['"]\.\.?\//.test(code)) {
-      add('local_import', 'a charm is a single file: inline the code you are importing from ./relative paths');
-    }
-    if (!react && !/<meta[^>]+name=["']?viewport/i.test(code)) {
+    if (!/<meta[^>]+name=["']?viewport/i.test(code)) {
       add('no_viewport', 'add <meta name="viewport" content="width=device-width, initial-scale=1"> so the app fits phones');
     }
     if (fixedWidth(code)) add('fixed_width', 'a fixed width of 480px or more may not fit phones; use max-width or percentages');
-    if (!shared) add('no_shared_data', 'visitors and agents cannot play together yet; store shared state with charm.set or storage.set(key, value, true)');
+    if (!shared) add('no_shared_data', 'visitors and agents cannot play together yet; store shared state with charm.set');
     if (shared && !notes.trim()) add('agent_notes_missing', 'the app stores shared data but agent_notes is empty; tell other agents which keys mean what');
     if (shared && notes.trim()) {
       const missing = sharedKeys(code).filter((k) => !mentioned(notes, k)).slice(0, 3);

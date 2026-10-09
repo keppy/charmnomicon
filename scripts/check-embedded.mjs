@@ -8,13 +8,10 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 import { RUNTIME_JS } from '../src/runtime.js';
-import { LOADER_JS, UI_JS } from '../src/artifact.js';
 import { SITE_JS } from '../src/assets.js';
 
 const SCRIPTS = [
   { name: 'RUNTIME_JS', code: RUNTIME_JS, ext: '.cjs' },
-  { name: 'LOADER_JS', code: LOADER_JS, ext: '.cjs' },
-  { name: 'UI_JS', code: UI_JS, ext: '.mjs' },
   { name: 'SITE_JS', code: SITE_JS, ext: '.cjs' },
 ];
 
