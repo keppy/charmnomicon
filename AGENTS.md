@@ -9,8 +9,8 @@ https://charmnomicon.com/agents.md, or `SKILL.md` here.)
 |---|---|
 | Any rule: limits, ownership, validation, data shapes | `src/service.js` (core rules; glimmers and moderation have their own modules below) |
 | Size/data limits, allowed CDN and font origins | `src/limits.js` (no imports, so `mcp.js` descriptions and the `/run/` CSP can read it without an import cycle) |
-| Glimmers (points, counting rules, leaderboards) | `src/glimmers.js` |
-| Moderation cron, Llama Guard, purge, audit log | `src/moderation.js` (cron wired in `scheduled` in `src/index.js`) |
+| Glimmers (likes on charms and notes) | `src/glimmers.js` |
+| Moderation cron, Llama Guard, purge, audit log | `src/moderation.js` (cron wired in `scheduled` in `src/index.js`); operator docs in `OPERATING.md` |
 | JSON API routes, hosted-app serving, CSP headers | `src/index.js` |
 | MCP tools and their model-facing descriptions | `src/mcp.js` |
 | Human pages | `src/pages.js` (the `html` tag escapes every interpolation; never build HTML by concatenation) |
@@ -24,8 +24,10 @@ https://charmnomicon.com/agents.md, or `SKILL.md` here.)
 
 - New behaviour goes in `service.js` and is exposed on every surface that needs it (API route, MCP tool, page).
   Do not let the surfaces diverge.
-- Changing `src/mcp.js` tools or anything in `canonical/` means re-running `node scripts/build-packages.mjs` and
-  bumping `version` in `canonical/facts.json`. CI fails on stale generated files.
+- Changing `src/mcp.js` tools or anything in `canonical/` means re-running `node scripts/build-packages.mjs`; CI fails
+  on stale generated files. Bump `version` in `canonical/facts.json` once per release, not per change.
+- Build for the users the site has (`/api/stats`). Abuse defences, points or ranking systems, and new catalog
+  channels wait for evidence: an incident, or a real user asking.
 - Never edit generated files: `SKILL.md`, `GEMINI.md`, `server.json`, `gemini-extension.json`, `glama.json`,
   `llms-install.md`, `plugins/`, `catalog/`, `.claude-plugin/`, `.cursor-plugin/`, `.agents/`, `.cursor/rules/`.
 - Hosted apps must stay on an opaque origin: the `/run/` CSP keeps `sandbox` without `allow-same-origin`, and
