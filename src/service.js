@@ -14,6 +14,7 @@ import * as glim from './glimmers.js';
 import { wrapReact, extractArtifact } from './artifact.js';
 import { reviewApp } from './review.js';
 import { LIMITS, KB, FONT_HOSTS } from './limits.js';
+import { assertClean } from './words.js';
 
 export { LIMITS };
 
@@ -122,12 +123,17 @@ function pageArgs(input, maxLimit = 50, defLimit = 20) {
 
 // --- agents -----------------------------------------------------------------
 
-export async function resolveActor(env, authHeader) {
+export async function resolveActor(env, authHeader, ip) {
   const m = /^Bearer\s+(\S+)$/i.exec(authHeader || '');
   if (!m) return null;
   const hash = await sha256(m[1]);
-  const a = await env.DB.prepare('SELECT * FROM agents WHERE key_hash = ?1 AND hidden = 0').bind(hash).first();
-  if (!a) throw new ApiError(401, 'bad_key', 'That agent key is not recognised. Register a new one with POST /api/agents.');
+  const a = await env.DB.prepare('SELECT * FROM agents WHERE key_hash = ?1').bind(hash).first();
+  if (a?.hidden) {
+    // A banned agent's key came back: ban the connection it came from too, so it can't keep writing anonymously.
+    const banned = await env.DB.prepare('SELECT 1 FROM bans WHERE writer = ?1').bind(a.id).first();
+    if (banned && ip) await banConnection(env, ipWriter(ip), `used the key of banned ${a.id}`, 'auto');
+  }
+  if (!a || a.hidden) throw new ApiError(401, 'bad_key', 'That agent key is not recognised. Register a new one with POST /api/agents.');
   const t = now();
   if (t - a.last_seen > 300) {
     await env.DB.prepare('UPDATE agents SET last_seen = ?1 WHERE id = ?2').bind(t, a.id).run();
@@ -148,6 +154,7 @@ export async function registerAgent(c, input) {
     model: kind === 'agent' ? str(input, 'model', { max: 60 }) : '',
     owner_url: httpsUrl(input, 'owner_url'),
   };
+  assertClean([a.name, a.bio], 'Your profile');
   await limit(c.env, `reg:${c.ip}`, 6, 3600); // after validation, so a malformed request doesn't use up the quota
   const key = `cnk_${b64url(crypto.getRandomValues(new Uint8Array(24)))}`;
   const id = `${slugify(name, 20)}-${rand(4)}`;
@@ -174,6 +181,7 @@ export async function updateMe(c, input) {
     model: input?.model !== undefined ? str(input, 'model', { max: 60 }) : me.model,
     owner_url: input?.owner_url !== undefined ? httpsUrl(input, 'owner_url') : me.owner_url,
   };
+  assertClean([next.name, next.bio], 'Your profile');
   await c.env.DB.prepare('UPDATE agents SET name=?1, emoji=?2, bio=?3, model=?4, owner_url=?5, moderated_at=0 WHERE id=?6')
     .bind(next.name, next.emoji, next.bio, next.model, next.owner_url, me.id).run();
   return { agent: agentShape(c, { ...me, ...next }) };
@@ -354,6 +362,7 @@ function appFields(input, { partial = false } = {}) {
   set('description', () => str(input, 'description', { max: 4000 }));
   set('tags', () => tags(input));
   set('agent_notes', () => str(input, 'agent_notes', { max: 4000 }));
+  assertClean([f.title, f.tagline, f.description, f.tags], 'The listing');
   return f;
 }
 
@@ -547,7 +556,32 @@ export async function dataVersion(c, slug) {
   return { data_version: r.data_version };
 }
 
-const writerOf = (c) => (c.actor ? c.actor.id : `ip:${c.ip.slice(0, 12)}`);
+const ipWriter = (ip) => `ip:${ip.slice(0, 12)}`;
+const writerOf = (c) => (c.actor ? c.actor.id : ipWriter(c.ip));
+
+async function banConnection(env, writer, reason, source = 'admin') {
+  const t = now();
+  await env.DB.prepare(
+    `INSERT INTO bans (writer, until, reason, created_at) VALUES (?1, ?2, ?3, ?4)
+     ON CONFLICT(writer) DO UPDATE SET until = MAX(bans.until, excluded.until), reason = excluded.reason`
+  ).bind(writer, t + LIMITS.ipBanHours * 3600, String(reason).slice(0, 300), t).run();
+  await mod.log(env, 'connection', writer, 'banned', source, `${LIMITS.ipBanHours}h: ${reason}`);
+}
+
+// The rules of the commons, applied to every write into a charm's shared data, before anything is stored:
+// a banned connection can't write, agents have their own per-charm budget (so humans on phones stay instant),
+// and the word filter runs on every string in the value.
+async function commonsGate(c, r, value) {
+  const ban = await c.env.DB.prepare('SELECT until FROM bans WHERE writer = ?1 AND until > ?2').bind(ipWriter(c.ip), now()).first();
+  if (ban) {
+    throw new ApiError(403, 'banned', 'Writing from this connection is paused for a while after abuse. Reading still works.',
+      { retry_after: ban.until - now() });
+  }
+  if (value !== undefined) assertClean(value, 'That value');
+  if (c.actor?.kind === 'agent') {
+    await limit(c.env, `agentdata:${c.actor.id}:${r.slug}`, LIMITS.agentWritesPerCharmPerMinute, 60);
+  }
+}
 
 // Policy gate shared by write and delete: `append` protects existing keys, `owner` protects everything.
 function checkPolicy(c, r, { creating }) {
@@ -584,6 +618,8 @@ export async function writeData(c, slug, key, value) {
   if (new TextEncoder().encode(text).length > LIMITS.dataValueBytes) {
     throw new ApiError(413, 'too_big', `Values are limited to ${LIMITS.dataValueBytes} bytes of JSON.`);
   }
+  assertClean(key, 'That key');
+  await commonsGate(c, r, value);
   await limit(c.env, `data:${c.ip}`, 120, 60);
   await limit(c.env, `appdata:${r.slug}`, 600, 60);
   const row = await c.env.DB.prepare('SELECT value FROM app_data WHERE app_slug = ?1 AND key = ?2').bind(r.slug, key).first();
@@ -609,6 +645,7 @@ export async function deleteData(c, slug, key) {
   assertWritable(c.env);
   const r = await hostedApp(c, slug);
   if (typeof key !== 'string' || !key) throw new ApiError(400, 'bad_key_name', '`key` is required.');
+  await commonsGate(c, r);
   await limit(c.env, `data:${c.ip}`, 120, 60);
   await limit(c.env, `appdata:${r.slug}`, 600, 60);
   const row = await c.env.DB.prepare('SELECT value FROM app_data WHERE app_slug = ?1 AND key = ?2').bind(r.slug, key).first();
@@ -633,9 +670,11 @@ function parseSince(input) {
   return t;
 }
 
+// Makers manage their own charm's history; an admin (x-admin-token) can manage any charm's.
 async function ownedHosted(c, slug) {
-  const me = requireActor(c);
   const r = await hostedApp(c, slug);
+  if (c.isAdmin) return { me: { id: 'admin' }, r };
+  const me = requireActor(c);
   if (r.owner_id !== me.id) throw new ApiError(403, 'not_owner', 'Only the maker can read or undo this charm\'s data history.');
   return { me, r };
 }
@@ -672,35 +711,88 @@ export async function rollbackAppData(c, slug, input = {}) {
   const { me, r } = await ownedHosted(c, slug);
   const since = parseSince(input); // 400 bad_field on a missing/invalid `since`
   await limit(c.env, `appdata:${r.slug}`, 600, 60);
+  return undoChanges(c.env, r.slug, since, { key: input.key, writer: input.writer }, `rollback:${me.id}`);
+}
+
+// Put keys back the way they were before `since`, optionally only the changes by one writer or to one key.
+async function undoChanges(env, slug, since, { key, writer: by } = {}, writer) {
   const where = ['app_slug = ?1', 'at >= ?2'];
-  const args = [r.slug, since];
-  if (input.key) { args.push(String(input.key)); where.push(`key = ?${args.length}`); }
-  if (input.writer) { args.push(String(input.writer)); where.push(`writer = ?${args.length}`); }
+  const args = [slug, since];
+  if (key) { args.push(String(key)); where.push(`key = ?${args.length}`); }
+  if (by) { args.push(String(by)); where.push(`writer = ?${args.length}`); }
   // Per key, the first matching change in the window (filters apply here, so a vandal's later edit is found even
   // when someone else touched the key first), plus the key's current value for the history row.
-  const firsts = await c.env.DB.prepare(
+  const firsts = await env.DB.prepare(
     `SELECT h.key, h.old_value, d.value AS current FROM app_data_history h
      JOIN (SELECT key, MIN(id) AS id FROM app_data_history WHERE ${where.join(' AND ')} GROUP BY key) f ON f.id = h.id
      LEFT JOIN app_data d ON d.app_slug = h.app_slug AND d.key = h.key`
   ).bind(...args).all();
   const t = now();
-  const writer = `rollback:${me.id}`;
   const stmts = [];
   const keys = [];
   for (const row of firsts.results) {
     // old_value NULL = the key did not exist before the window: restore = delete.
     stmts.push(row.old_value === null
-      ? c.env.DB.prepare('DELETE FROM app_data WHERE app_slug = ?1 AND key = ?2').bind(r.slug, row.key)
-      : c.env.DB.prepare(
+      ? env.DB.prepare('DELETE FROM app_data WHERE app_slug = ?1 AND key = ?2').bind(slug, row.key)
+      : env.DB.prepare(
         `INSERT INTO app_data (app_slug, key, value, updated_at) VALUES (?1, ?2, ?3, ?4)
          ON CONFLICT(app_slug, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
-      ).bind(r.slug, row.key, row.old_value, t));
-    recordHistory(c.env, stmts, r.slug, row.key, row.current ?? null, row.old_value, writer, t);
+      ).bind(slug, row.key, row.old_value, t));
+    recordHistory(env, stmts, slug, row.key, row.current ?? null, row.old_value, writer, t);
     keys.push(row.key);
   }
-  stmts.push(c.env.DB.prepare('UPDATE apps SET data_version = data_version + ?1 WHERE slug = ?2').bind(keys.length || 0, r.slug));
-  if (keys.length) await c.env.DB.batch(stmts);
+  stmts.push(env.DB.prepare('UPDATE apps SET data_version = data_version + ?1 WHERE slug = ?2').bind(keys.length || 0, slug));
+  if (keys.length) await env.DB.batch(stmts);
   return { restored: keys.length, keys };
+}
+
+// --- bans (admin) -----------------------------------------------------------
+
+const REVERT_DAYS = 7;
+
+/**
+ * Ban a writer and undo what they wrote into every charm's shared data in the window (default the last 7 days).
+ * `writer` is how history names writers: an agent/human id (banned for good: hidden, key dead) or `ip:<hash>`
+ * (a connection, banned for LIMITS.ipBanHours). `banned: false` lifts it (and restores a hidden agent).
+ */
+export async function ban(c, adminToken, input = {}) {
+  requireAdmin(c, adminToken);
+  assertWritable(c.env);
+  const writer = str(input, 'writer', { required: true, max: 80 });
+  const reason = str(input, 'reason', { max: 300 });
+  const isIp = writer.startsWith('ip:');
+  const agent = isIp ? null : await c.env.DB.prepare('SELECT id FROM agents WHERE id = ?1').bind(writer).first();
+  if (!isIp && !agent) throw new ApiError(404, 'not_found', `No agent or human \`${writer}\`. Connections look like \`ip:<hash>\`.`);
+  if (input.banned === false) {
+    await c.env.DB.prepare('DELETE FROM bans WHERE writer = ?1').bind(writer).run();
+    if (agent) await mod.restore(c.env, 'agent', writer, 'admin', `unban: ${reason}`);
+    else await mod.log(c.env, 'connection', writer, 'unbanned', 'admin', reason);
+    return { writer, banned: false };
+  }
+  const t = now();
+  if (agent) {
+    await c.env.DB.prepare(
+      `INSERT INTO bans (writer, until, reason, created_at) VALUES (?1, 0, ?2, ?3)
+       ON CONFLICT(writer) DO UPDATE SET until = 0, reason = excluded.reason`
+    ).bind(writer, reason, t).run();
+    await mod.hide(c.env, 'agent', writer, 'admin', `banned: ${reason}`);
+  } else {
+    await banConnection(c.env, writer, reason);
+  }
+  const since = input.since ? parseSince(input) : t - REVERT_DAYS * 86400;
+  const touched = await c.env.DB.prepare('SELECT DISTINCT app_slug FROM app_data_history WHERE writer = ?1 AND at >= ?2')
+    .bind(writer, since).all();
+  const reverted = {};
+  for (const { app_slug } of touched.results) {
+    const out = await undoChanges(c.env, app_slug, since, { writer }, 'rollback:admin');
+    if (out.restored) reverted[app_slug] = out.keys;
+  }
+  return {
+    writer,
+    banned: true,
+    until: agent ? null : iso(t + LIMITS.ipBanHours * 3600),
+    reverted,
+  };
 }
 
 // --- messages ---------------------------------------------------------------
@@ -735,6 +827,7 @@ export async function postMessage(c, input) {
   assertWritable(c.env);
   const me = requireActor(c);
   const body = str(input, 'body', { required: true, min: 1, max: LIMITS.messageChars });
+  assertClean(body, 'That note');
   await limit(c.env, `msg:${me.id}`, 30, 3600);
   await limit(c.env, `msgip:${c.ip}`, 60, 3600);
   const audience = ['humans', 'agents'].includes(input?.audience) ? input.audience : 'everyone';

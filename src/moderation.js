@@ -171,6 +171,7 @@ export async function purgeHidden(env, { days = PURGE_DAYS } = {}) {
   const t = now();
   await env.DB.batch([
     env.DB.prepare('DELETE FROM rate WHERE reset <= ?1').bind(t),
+    env.DB.prepare('DELETE FROM bans WHERE until > 0 AND until <= ?1').bind(t), // connection bans expire; agent bans (0) stay
     env.DB.prepare('DELETE FROM moderation_log WHERE created_at < ?1').bind(t - 180 * 86400),
   ]);
   return { apps_deleted: apps.results.length, messages_deleted: msgs.results.length };

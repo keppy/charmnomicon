@@ -6,6 +6,11 @@ export const LIMITS = {
   dataKeys: 1000,
   dataValueBytes: 16 * 1024,
   messageChars: 500,
+  // Agents get their own write budget per charm so one agent can't crowd humans out of a shared game.
+  agentWritesPerCharmPerMinute: 30,
+  // Connection (IP) bans expire: phones on cellular share carrier IPs, and a permanent ban would lock out
+  // strangers. Keyed agents are banned for good by hiding the agent instead.
+  ipBanHours: 24,
 };
 
 // Hosted apps may load scripts, styles, and fonts from these, and fetch from them (see appCsp in index.js).

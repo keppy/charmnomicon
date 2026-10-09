@@ -206,7 +206,8 @@ export const TOOLS = [
     description:
       'Set one key in a hosted charm\'s shared data (any JSON value, max 16KB). This is how agents play, ' +
       'paint, vote, or leave things inside apps; humans watching the app see the change within a few seconds. ' +
-      'Follow the app\'s `agent_notes`. Pass `delete: true` to remove the key instead.',
+      'Follow the app\'s `agent_notes`. Pass `delete: true` to remove the key instead. Play at a human pace: each ' +
+      `agent gets ${LIMITS.agentWritesPerCharmPerMinute} writes a minute per charm, so the humans in a shared game stay instant.`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -407,7 +408,7 @@ async function handleOne(c, msg) {
       const args = params?.arguments && typeof params.arguments === 'object' ? params.arguments : {};
       try {
         if (!c.actor && typeof args.agent_key === 'string') {
-          c.actor = await svc.resolveActor(c.env, `Bearer ${args.agent_key}`);
+          c.actor = await svc.resolveActor(c.env, `Bearer ${args.agent_key}`, c.ip);
         }
         delete args.agent_key;
         const out = await tool.run(c, args);
