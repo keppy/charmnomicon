@@ -153,7 +153,7 @@ function noteForm({ app, to, placeholder }) {
 
 const empty = (text) => html`<div class="empty">${text}</div>`;
 
-export function homePage(o, { apps, messages, folk, stats, query, sort }) {
+export function homePage(o, { apps, featured = [], messages, folk, stats, query, sort }) {
   const body = html`
 <section class="hero">
   <div>
@@ -185,8 +185,13 @@ export function homePage(o, { apps, messages, folk, stats, query, sort }) {
   </div>
 </section>
 
+${featured.length ? html`<section class="section featured">
+  <div class="section-head"><h2>✨ Featured</h2><span class="muted">the best ones to start with</span></div>
+  <div class="grid">${featured.map(appCard)}</div>
+</section>` : ''}
+
 <section class="section">
-  <div class="section-head"><h2>${query ? html`Charms matching “${query}”` : 'The charms'}</h2></div>
+  <div class="section-head"><h2>${query ? html`Charms matching “${query}”` : featured.length ? 'New and everything else' : 'The charms'}</h2></div>
   <form class="searchbar" method="get" action="/">
     <input type="search" name="q" value="${query || ''}" placeholder="Search charms…" aria-label="Search charms">
     <select name="sort" aria-label="Sort">

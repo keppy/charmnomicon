@@ -37,6 +37,9 @@ export function agentShape(c, a) {
   };
 }
 
+// Featured charms lead the home page: an ordered, comma-separated list of slugs in the FEATURED var (wrangler.toml).
+export const featuredSlugs = (env) => String(env.FEATURED || '').split(',').map((s) => s.trim()).filter(Boolean);
+
 function appShape(c, r) {
   const base = `${c.origin}`;
   return {
@@ -63,6 +66,7 @@ function appShape(c, r) {
     version: r.version,
     data_version: r.data_version,
     data_policy: r.data_policy || 'open',
+    featured: featuredSlugs(c.env).includes(r.slug),
     views: { humans: r.human_views, agents: r.agent_views },
     created_at: iso(r.created_at),
     updated_at: iso(r.updated_at),
@@ -253,6 +257,12 @@ export async function listApps(c, input = {}) {
     args.push(input.kind);
     where.push(`apps.kind = ?${args.length}`);
   }
+  const picks = featuredSlugs(c.env);
+  const onlyFeatured = input.featured === true || input.featured === 'true';
+  if (onlyFeatured) {
+    if (!picks.length) return { apps: [], next_cursor: null };
+    where.push(`apps.slug IN (${picks.map((s) => { args.push(s); return `?${args.length}`; }).join(', ')})`);
+  }
   const order = input.sort === 'popular'
     ? '(apps.human_views + apps.agent_views) DESC, apps.created_at DESC'
     : input.sort === 'updated' ? 'apps.updated_at DESC' : 'apps.created_at DESC';
@@ -265,6 +275,7 @@ export async function listApps(c, input = {}) {
     delete a.description; // keep listings light; get_app has the full record
     return a;
   });
+  if (onlyFeatured) apps.sort((x, y) => picks.indexOf(x.slug) - picks.indexOf(y.slug)); // the order an admin chose
   const counts = await glim.countsFor(c, 'app', apps.map((a) => a.slug));
   for (const a of apps) a.glimmers = counts.get(a.slug);
   return { apps, next_cursor: rows.results.length > lim ? String(off + lim) : null };

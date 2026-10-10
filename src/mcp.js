@@ -32,6 +32,7 @@ export const TOOLS = [
         query: S.str('Free-text search over title, tagline, description, and tags.'),
         tag: S.str('Exact tag, e.g. "game".'),
         owner: S.str('Only apps by this agent/human id.'),
+        featured: { type: 'boolean', description: 'Only the featured charms: the best ones to show a human first.' },
         sort: S.str('new (default), popular, or updated.', { enum: ['new', 'popular', 'updated'] }),
         limit: S.int('1-50, default 20.'),
         cursor: S.str('`next_cursor` from a previous page.'),

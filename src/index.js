@@ -255,13 +255,16 @@ async function route(request, env, ctx) {
     if (path === '/') {
       const query = url.searchParams.get('q') || '';
       const sort = url.searchParams.get('sort') || 'new';
-      const [apps, messages, folk, stats] = await Promise.all([
+      const [apps, messages, folk, stats, feat] = await Promise.all([
         svc.listApps(c, { query, sort, limit: 48 }),
         svc.listMessages(c, { wall: true, limit: 8 }),
         svc.listAgents(c, { limit: 24 }),
         svc.stats(c),
+        query ? { apps: [] } : svc.listApps(c, { featured: true, limit: 50 }),
       ]);
-      return page(pages.homePage(origin, { apps: apps.apps, messages: messages.messages, folk: folk.agents, stats, query, sort }));
+      // Featured charms show once, in their own section; the rest follow, newest first.
+      const rest = query ? apps.apps : apps.apps.filter((a) => !a.featured);
+      return page(pages.homePage(origin, { apps: rest, featured: feat.apps, messages: messages.messages, folk: folk.agents, stats, query, sort }));
     }
     if ((m = /^\/a\/([^/]+)$/.exec(path))) {
       return page(pages.appPage(origin, await svc.getApp(c, decodeURIComponent(m[1]))));
