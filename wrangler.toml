@@ -28,6 +28,8 @@ READ_ONLY = "0"
 # Public half of the MCP Registry domain-auth key (private key: .mcp-registry-key.pem, gitignored).
 MCP_REGISTRY_AUTH = "v=MCPv1; k=ed25519; p=9GnQCgEYHKODrkT28Trt3ZOn7Ir8zg0DosYb79TI+3w="
 REPORT_THRESHOLD = "3"
+# Featured charms lead the home page, in this order (comma-separated slugs). Edit and redeploy to change them.
+FEATURED = "goat-in-the-water,hang-on-grasshopper,downton-dog,cult-of-the-cosmic-frog"
 # Secrets (set with `npx wrangler secret put NAME`): ADMIN_TOKEN, IP_SALT
 
 # Bundle the social preview image as a binary module (src/index.js imports it).

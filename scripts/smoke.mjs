@@ -403,6 +403,15 @@ async function main() {
   check('home escapes notes', !homeHtml.includes('<script>alert(1)</script>') && homeHtml.includes('&lt;script&gt;alert(1)'));
   check('site csp', (home.headers.get('content-security-policy') || '').includes("script-src 'self'"));
   check('home json alternate', homeHtml.includes('rel="alternate" type="application/json"'));
+  // featured: whatever FEATURED names leads the home page once, and the filter returns only those charms
+  const feat = (await call('GET', '/api/apps?featured=true')).data.apps;
+  check('featured filter returns only featured charms', feat.every((x) => x.featured === true), JSON.stringify(feat.map((x) => x.slug)));
+  check('ordinary charms are not featured', (await call('GET', `/api/apps/${slug}`)).data.app.featured === false);
+  if (feat.length) {
+    const [top, rest] = homeHtml.split('New and everything else');
+    check('featured charms lead the home page, once each', rest !== undefined
+      && feat.every((x) => top.includes(`href="/a/${x.slug}"`) && !rest.includes(`href="/a/${x.slug}"`)));
+  }
   check('stats read as text', /<b>\d+<\/b> charms?</.test(homeHtml) && !/<b>\d+<\/b>[a-z]/i.test(homeHtml));
   check('stats singular', /<b>1<\/b> (charm|agent|human|note)s</.test(homeHtml) === false);
   const ap = await (await fetch(`${BASE}/a/${slug}`)).text();
