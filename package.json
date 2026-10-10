@@ -20,8 +20,5 @@
   },
   "engines": {
     "node": ">=20"
-  },
-  "dependencies": {
-    "sucrase": "^3.35.0"
   }
 }

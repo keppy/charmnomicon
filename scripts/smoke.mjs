@@ -2,7 +2,6 @@
 // Usage: node scripts/smoke.mjs [base-url]
 // Exercises every surface: JSON API, hosted runtime + CSP, HTML pages, MCP, and the failure paths.
 
-import { readFileSync } from 'node:fs';
 
 const BASE = (process.argv[2] || process.env.CHARM_BASE || 'http://localhost:8787').replace(/\/$/, '');
 // Retry once when the server closed a kept-alive connection while we were busy (e.g. the slow local
@@ -16,7 +15,6 @@ globalThis.fetch = async (...args) => {
     throw e;
   }
 };
-const ARTIFACT = readFileSync(new URL('../seed/artifacts/seed-swap.tsx', import.meta.url), 'utf8');
 let passed = 0;
 const fails = [];
 const created = []; // agent ids this run registered; hidden at the end when an admin token is available
@@ -96,45 +94,14 @@ async function main() {
   const link = await call('POST', '/api/apps', { title: `Smoke Link ${tag}`, url: 'https://example.com/app' }, keyA);
   check('publish link', link.status === 200 && link.data.app.kind === 'link' && link.data.app.external_url === 'https://example.com/app');
 
-  // React components (Claude artifacts) are compiled and wrapped; the original source round-trips
-  const ra = await call('POST', '/api/apps', { title: `Seed Swap ${tag}`, emoji: '🌱', react: ARTIFACT }, keyA);
-  check('publish react artifact', ra.status === 200 && ra.data.app.kind === 'hosted', JSON.stringify(ra.data).slice(0, 300));
-  const rslug = ra.data.app?.slug;
-  const rrun = await (await fetch(`${BASE}/run/${rslug}`)).text();
-  check('react page has loader, import map, tailwind', rrun.includes('/runtime/react.js') && rrun.includes('"importmap"') &&
-    rrun.includes('cdn.tailwindcss.com') && rrun.includes('window.__CHARM__'));
-  const rsrc = await call('GET', `/api/apps/${rslug}/source`);
-  check('react source round-trips', rsrc.data.format === 'react' && rsrc.data.react === ARTIFACT, JSON.stringify(rsrc.data).slice(0, 200));
-  const rbad = await call('POST', '/api/apps', { title: 'broken', react: 'export default function A() { return <div>; }' }, keyA);
-  check('react syntax error -> 400 with detail', rbad.status === 400 && rbad.data.error.code === 'react_syntax' && /\(\d+:\d+\)/.test(rbad.data.error.message),
-    JSON.stringify(rbad.data));
-  const rnodef = await call('POST', '/api/apps', { title: 'nodefault', react: 'export function A() { return <div/>; }' }, keyA);
-  check('react without default export -> 400', rnodef.status === 400 && rnodef.data.error.code === 'react_no_default');
-  check('html and react together -> 400', (await call('POST', '/api/apps', { title: 'both', html, react: ARTIFACT }, keyA)).status === 400);
-  // Over the size limit: 413 too_big with byte counts and recovery steps. A react component's page stores the source
-  // and the compiled code, so its message must name the component, not `html`. Rejected before the publish quota.
+  // Over the size limit: 413 too_big with byte counts and recovery steps, rejected before the publish quota.
   const bigHtml = await call('POST', '/api/apps', { title: 'big', html: `<!doctype html><p>${'x'.repeat(560 * 1024)}</p>` }, keyA);
   check('oversized html -> 413 too_big', bigHtml.status === 413 && bigHtml.data.error?.code === 'too_big' &&
     /^`html` is \d+ bytes; the limit is 524288 bytes \(512KB\)/.test(bigHtml.data.error.message) &&
     bigHtml.data.error.message.includes('fonts.googleapis.com'), JSON.stringify(bigHtml.data).slice(0, 300));
-  const bigReact = `export default function A() { const s = "${'y'.repeat(300 * 1024)}"; return <p>{s.length}</p>; }`;
-  const bigR = await call('POST', '/api/apps', { title: 'big react', react: bigReact }, keyA);
-  check('oversized react -> 413 naming the component', bigR.status === 413 && bigR.data.error?.code === 'too_big' &&
-    /^Your `react` component becomes a \d+-byte page/.test(bigR.data.error.message), JSON.stringify(bigR.data).slice(0, 300));
   const bigM = await mcp('tools/call', { name: 'publish_app', arguments: { title: 'big', html: `<p>${'z'.repeat(560 * 1024)}</p>`, agent_key: keyA } });
   check('mcp oversized html -> isError too_big', bigM.result?.isError === true && JSON.stringify(bigM.result).includes('too_big'),
     JSON.stringify(bigM).slice(0, 300));
-  const rupd = await call('PATCH', `/api/apps/${rslug}`, { react: ARTIFACT.replace('Seed Swap', 'Seed Swap II') }, keyA);
-  check('update react', rupd.status === 200 && rupd.data.app.version === 2, JSON.stringify(rupd.data).slice(0, 200));
-  check('updated source', (await call('GET', `/api/apps/${rslug}/source`)).data.react.includes('Seed Swap II'));
-  const ui = await fetch(`${BASE}/runtime/ui/card`);
-  check('shadcn stand-ins served as a CORS module', ui.status === 200 && ui.headers.get('access-control-allow-origin') === '*' &&
-    (await ui.text()).includes('export const CardTitle'));
-  const rm = await mcp('tools/call', { name: 'publish_app', arguments: { title: `MCP Seed Swap ${tag}`, react: ARTIFACT, agent_key: keyA } });
-  check('mcp publish_app {react}', rm.result && !rm.result.isError && rm.result.structuredContent.app.kind === 'hosted', JSON.stringify(rm).slice(0, 300));
-  for (const s of [rslug, rm.result?.structuredContent?.app?.slug].filter(Boolean)) {
-    if (s !== rslug || !process.env.KEEP_REACT) await call('DELETE', `/api/apps/${s}`, undefined, keyA);
-  }
 
   // read
   const list = await call('GET', `/api/apps?query=${tag}`);
@@ -395,12 +362,6 @@ async function main() {
   check('agent_notes_keys lists line:', tpl.data.review?.suggestions.some((s) => s.code === 'agent_notes_keys' && s.message.includes('line:')),
     JSON.stringify(tpl.data.review));
   await call('DELETE', `/api/apps/${tpl.data.app.slug}`, undefined, keyB);
-
-  // react with a relative import still publishes, and is flagged
-  const rimp = await call('POST', '/api/apps', { title: `Rel Import ${tag}`, react: 'import x from "./utils";\nexport default function A() { return <div>{x}</div>; }' }, keyB);
-  check('react local_import flagged, still published', rimp.status === 200 &&
-    rimp.data.review?.suggestions.some((s) => s.code === 'local_import'), JSON.stringify(rimp.data.review));
-  await call('DELETE', `/api/apps/${rimp.data.app.slug}`, undefined, keyB);
 
   // MCP publish_app carries review in structuredContent
   const mrev = await mcp('tools/call', { name: 'publish_app', arguments: { title: `MCP Rough ${tag}`, html: roughHtml, agent_key: keyB } });
