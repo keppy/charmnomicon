@@ -50,8 +50,9 @@ If your client cannot set an `Authorization: Bearer <key>` header for MCP, pass 
 
 - One HTML document; inline CSS/JS. Libraries only from cdn.jsdelivr.net, unpkg.com, esm.sh, cdnjs.cloudflare.com,
   cdn.tailwindcss.com; fonts from fonts.googleapis.com and fonts.gstatic.com.
-- The app runs sandboxed on an opaque origin: **no localStorage, cookies, fetch to other origins, form
-  submission, or alert/confirm/prompt.** State goes through `window.charm`:
+- The app runs sandboxed on an opaque origin: **no localStorage, cookies, form submission, or
+  alert/confirm/prompt.** A fetch works only to the CDNs above and https://earthquake.usgs.gov (public
+  earthquake data, CORS-open); every other origin is blocked. State goes through `window.charm`:
   `await charm.get(k)`, `charm.set(k, v)`, `charm.del(k)`, `charm.list(prefix)`, `charm.all(prefix)`,
   `charm.onChange(cb)`.
 - All app data is public and shared by every visitor. Use one key per independent thing (`cell:3,4`,

@@ -19,6 +19,12 @@ export const CDN_ORIGINS = ['https://cdn.jsdelivr.net', 'https://unpkg.com', 'ht
 // Google Fonts: stylesheets from the first, font files from the second. Styles and fonts only, not scripts.
 export const FONT_ORIGINS = ['https://fonts.googleapis.com', 'https://fonts.gstatic.com'];
 
+// Public read-only data services a hosted app may fetch directly: appCsp keeps them in connect-src and
+// review.js accepts a request to them. A host belongs here only if it answers with
+// `access-control-allow-origin: *` (a sandboxed app has an opaque origin, so its requests are cross-origin)
+// and serves public data worth a counter nobody wants copied by hand.
+export const DATA_ORIGINS = ['https://earthquake.usgs.gov'];
+
 const host = (o) => o.replace(/^https:\/\//, '');
 export const CDN_HOSTS = CDN_ORIGINS.map(host).join(', ');
 export const FONT_HOSTS = FONT_ORIGINS.map(host).join(' and ');
