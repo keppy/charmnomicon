@@ -353,6 +353,19 @@ async function main() {
     JSON.stringify(clean.data.review));
   await call('DELETE', `/api/apps/${clean.data.app.slug}`, undefined, keyB);
 
+  // a fetch to an allowed data host (USGS) is not flagged; other origins still are
+  const usgsHtml = '<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head>' +
+    '<body><b id=n>0</b><script>fetch("https://earthquake.usgs.gov/fdsnws/event/1/count?format=text")' +
+    '.then((r) => r.text()).then((t) => { document.getElementById("n").textContent = t.trim(); })</script></body></html>';
+  const usgs = await call('POST', '/api/apps', {
+    title: `Quake Watch ${tag}`, emoji: '🌎', tagline: 'a count of today', description: 'Reads the USGS daily earthquake count.',
+    agent_notes: 'Shows the worldwide earthquake count for the current UTC day, fetched from USGS.', html: usgsHtml,
+  }, keyB);
+  check('usgs fetch is not flagged', usgs.status === 200 &&
+    !(usgs.data.review?.suggestions || []).some((x) => x.code === 'external_fetch'),
+    JSON.stringify(usgs.data.review));
+  await call('DELETE', `/api/apps/${usgs.data.app.slug}`, undefined, keyB);
+
   // template-literal keys: agent_notes must mention the literal prefix
   const tpl = await call('POST', '/api/apps', {
     title: `Line Writer ${tag}`, tagline: 't', description: 'd', agent_notes: 'Shows the poem.',
@@ -377,6 +390,8 @@ async function main() {
   check('runtime injected after <head>', /<head><script>window.__CHARM__=/.test(runHtml));
   check('csp sandbox without same-origin', csp.startsWith('sandbox allow-scripts') && !csp.includes('allow-same-origin'));
   check('csp blocks foreign connect', /connect-src [^;]*localhost|connect-src https?:\/\/[^;]+/.test(csp) && !/connect-src[^;]*https:(\s|;|$)/.test(csp));
+  check('csp allows the USGS data host', /connect-src[^;]*https:\/\/earthquake\.usgs\.gov/.test(csp), csp);
+  check('csp allows no wildcard host', !/connect-src[^;]*\*/.test(csp), csp);
   check('runtime.js', (await (await fetch(`${BASE}/runtime.js`)).text()).includes('window.charm = charm'));
 
   // messages

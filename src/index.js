@@ -4,7 +4,7 @@ import * as svc from './service.js';
 import { ApiError, clientIp, sha256 } from './util.js';
 import { handleMcp } from './mcp.js';
 import { llmsTxt, agentsMd, openapi, privacyMd, termsMd, ICON_SVG } from './docs.js';
-import { CDN_ORIGINS, FONT_ORIGINS } from './limits.js';
+import { CDN_ORIGINS, DATA_ORIGINS, FONT_ORIGINS } from './limits.js';
 import { RUNTIME_JS } from './runtime.js';
 import { SITE_CSS, SITE_JS } from './assets.js';
 import * as pages from './pages.js';
@@ -44,7 +44,7 @@ function appCsp(origin) {
     `font-src data: ${FONT_ORIGINS[1]} ${CDN_ORIGINS.join(' ')}`,
     'img-src data: blob: https:',
     'media-src data: blob: https:',
-    `connect-src ${origin} ${CDN_ORIGINS.join(' ')}`,
+    `connect-src ${origin} ${CDN_ORIGINS.join(' ')} ${DATA_ORIGINS.join(' ')}`,
     'worker-src blob:',
     "form-action 'none'",
     "base-uri 'none'",

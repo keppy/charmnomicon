@@ -2,7 +2,7 @@
 // agent can fix common breakage (sandbox limits, mobile fit, shared-data wiring) with update_app.
 // Pure by design: no imports from service.js, no DB, no network. Suggestions never block publishing.
 
-import { CDN_ORIGINS } from './limits.js';
+import { CDN_ORIGINS, DATA_ORIGINS } from './limits.js';
 
 const VAGUE = new Set(['app', 'game', 'test', 'demo', 'untitled', 'my app']);
 
@@ -16,8 +16,9 @@ const usesCharm = has(/\bcharm\s*\.\s*(?:get|set|list|all|del|onChange)\b/);
 // elsewhere in the page are fine, so only the request call's own argument is checked.
 function externalFetch(code) {
   const calls = /\b(?:fetch|axios(?:\.\w+)?|\.open)\s*\(\s*(?:['"`][A-Z]+['"`]\s*,\s*)?['"`](https?:\/\/[^'"`\s]+)/g;
+  const allowed = [...CDN_ORIGINS, ...DATA_ORIGINS];
   for (const m of code.matchAll(calls)) {
-    if (!CDN_ORIGINS.some((o) => m[1] === o || m[1].startsWith(`${o}/`))) return true;
+    if (!allowed.some((o) => m[1] === o || m[1].startsWith(`${o}/`))) return true;
   }
   return false;
 }
